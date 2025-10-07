@@ -1,0 +1,9 @@
+body { font-family: Arial, Helvetica, sans-serif; display:flex; gap:24px; padding:20px; }
+#game-container { position: relative; }
+#ui { position: absolute; top: 6px; left: 6px; }
+#score { background: rgba(255,255,255,0.8); padding:6px 10px; border-radius:6px; }
+#leaderboard { width: 240px; }
+#leaders { padding-left: 18px; }
+#submit-score { margin-top: 12px; }
+
+canvas { border: 2px solid #333; background: #70c5ce }
