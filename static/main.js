@@ -33,7 +33,7 @@ function update() {
   bird.vy += 0.1; // gravity
   bird.y += bird.vy;
 
-  if (frame % 90 === 0) spawnPipe();
+  if (frame % 140 === 0) spawnPipe(); // was 90
 
   for (let p of pipes) {
     p.x -= 2.5;
@@ -69,7 +69,12 @@ function draw() {
     ctx.fillRect(p.x, p.bottom, 40, H - p.bottom);
   }
 
-  requestAnimationFrame(loop);
+  // Only continue the animation loop while the game is running.
+  // If we always call requestAnimationFrame unconditionally, multiple
+  // overlapping loops can be created by calling reset(), which causes
+  // gravity (vy) to be applied more than once per frame and the bird
+  // to fall very fast immediately after resetting.
+  if (running) requestAnimationFrame(loop);
 }
 
 function loop() {
