@@ -8,6 +8,10 @@ let pipes = [];
 let frame = 0;
 let score = 0;
 let running = false;
+const scale_mult = 10; // score multiplier for distance from center of gap
+const MIN_GAP = 110; // minimum gap size
+const GAP_JITTER = 60; // range of gap size variation
+const MAX_GAP = 170; // maximum gap size for scoring normalization
 
 function reset() {
   bird = { x: 80, y: H/2, vy: 0 };
@@ -22,7 +26,7 @@ function reset() {
 }
 
 function spawnPipe() {
-  const gap = 140;
+  const gap = Math.random() * GAP_JITTER + MIN_GAP;
   const top = Math.random() * (H - gap - 100) + 50;
   pipes.push({ x: W, top, bottom: top + gap, passed: false });
 }
@@ -35,23 +39,24 @@ function update() {
 
   if (frame % 140 === 0) spawnPipe(); // was 90
 
+
   for (let p of pipes) {
     p.x -= 2.5;
-    if (!p.passed && p.x + 30 < bird.x) { 
-        // update score by the distance from the middle of the gap - middle of the gap gives 0 points and further away gives more points
-        const middleOfGap = (p.top + p.bottom) / 2;
-        const distance = Math.abs(middleOfGap - bird.y);
-        score += distance;
-        p.passed = true; 
-        document.getElementById('score').innerText = 'Score: ' + score; 
-    }
   }
-  // collision
+
   if (bird.y > H || bird.y < 0) endGame();
 
   for (let p of pipes) {
     if (bird.x + 12 > p.x && bird.x - 12 < p.x + 40) {
       if (bird.y - 12 < p.top || bird.y + 12 > p.bottom) endGame();
+      else if (!p.passed && bird.x + 2 > p.x && bird.x - 2 < p.x + 40) {
+        const middleOfGap = (p.top + p.bottom) / 2;
+        const gap = p.bottom - p.top;
+        const distance = Math.round(scale_mult * Math.abs(middleOfGap - bird.y) / (gap/2) / (gap/MAX_GAP));
+        score += distance;
+        p.passed = true; 
+        document.getElementById('score').innerText = 'Score: ' + score; 
+      }
     }
   }
 
