@@ -42,7 +42,9 @@ function update() {
         const middleOfGap = (p.top + p.bottom) / 2;
         const distance = Math.abs(middleOfGap - bird.y);
         score += distance;
-        p.passed = true; 
+        p.passed = true;
+        console.log(bird);
+        console.log(p); 
         document.getElementById('score').innerText = 'Score: ' + score; 
     }
   }
