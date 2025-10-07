@@ -37,9 +37,15 @@ function update() {
 
   for (let p of pipes) {
     p.x -= 2.5;
-    if (!p.passed && p.x + 30 < bird.x) { score++; p.passed = true; document.getElementById('score').innerText = 'Score: ' + score; }
+    if (!p.passed && p.x + 30 < bird.x) { 
+        // update score by the distance from the middle of the gap - middle of the gap gives 0 points and further away gives more points
+        const middleOfGap = (p.top + p.bottom) / 2;
+        const distance = Math.abs(middleOfGap - bird.y);
+        score += distance;
+        p.passed = true; 
+        document.getElementById('score').innerText = 'Score: ' + score; 
+    }
   }
-
   // collision
   if (bird.y > H || bird.y < 0) endGame();
 
