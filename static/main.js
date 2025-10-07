@@ -69,11 +69,7 @@ function draw() {
     ctx.fillRect(p.x, p.bottom, 40, H - p.bottom);
   }
 
-  // Only continue the animation loop while the game is running.
-  // If we always call requestAnimationFrame unconditionally, multiple
-  // overlapping loops can be created by calling reset(), which causes
-  // gravity (vy) to be applied more than once per frame and the bird
-  // to fall very fast immediately after resetting.
+
   if (running) requestAnimationFrame(loop);
 }
 
