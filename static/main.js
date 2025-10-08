@@ -12,12 +12,17 @@ const scale_mult = 10; // score multiplier for distance from center of gap
 const MIN_GAP = 110; // minimum gap size
 const GAP_JITTER = 60; // range of gap size variation
 const MAX_GAP = 170; // maximum gap size for scoring normalization
+const BASE_DELAY = 160; // average pipe position variation
+const PIPE_JITTER = 20; // range of pipe position variation
+
+let nextPipeFrame = BASE_DELAY;
 
 function reset() {
   bird = { x: 80, y: H/2, vy: 0 };
   pipes = [];
   frame = 0;
   score = 0;
+  nextPipeFrame = BASE_DELAY;
   running = true;
   document.getElementById('submit-score').style.display = 'none';
   // start game loop
@@ -37,8 +42,15 @@ function update() {
   bird.vy += 0.1; // gravity
   bird.y += bird.vy;
 
-  if (frame % 140 === 0) spawnPipe(); // was 90
+  if (frame === nextPipeFrame) {
+    spawnPipe();
 
+    // pick next delay with jitter
+    const jitter = Math.floor(Math.random() * (PIPE_JITTER * 2 + 1)) - PIPE_JITTER;
+    const delay = BASE_DELAY + jitter;
+
+    nextPipeFrame = frame + delay;
+  }
 
   for (let p of pipes) {
     p.x -= 2.5;
