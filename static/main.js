@@ -17,11 +17,24 @@ const PIPE_JITTER = 20; // range of pipe position variation
 
 let nextPipeFrame = BASE_DELAY;
 
+// --- MILESTONES CONFIG ---
+const RUN_SCORE_MILESTONES = [10, 20, 30];   // first-time single-run milestones
+const CUMULATIVE_SCORE_STEP = 100;           // every 100 cumulative points
+
+// --- TRACKERS ---
+let cumulativeScore = parseInt(localStorage.getItem('cumulativeScore') || '0');
+let reachedRunMilestones = JSON.parse(localStorage.getItem('reachedRunMilestones') || '[]');
+
+
+let effects = [];
+
+
 function reset() {
   bird = { x: 80, y: H/2, vy: 0 };
   pipes = [];
   frame = 0;
   score = 0;
+  effects = [];
   nextPipeFrame = BASE_DELAY;
   running = true;
   document.getElementById('submit-score').style.display = 'none';
@@ -29,6 +42,58 @@ function reset() {
   loop();
   document.getElementById('score').innerText = 'Score: 0';
 }
+
+function showMilestonePopup(messages) {
+  let i = 0;
+  function nextPopup() {
+    if (i < messages.length) {
+      alert("🎉 " + messages[i]);
+      i++;
+      // queue the next popup after this one is dismissed
+      nextPopup();
+    }
+  }
+  nextPopup();
+}
+
+
+function checkMilestones(runScore, totalScore) {
+  let unlocked = [];
+
+  // Check run-based milestones
+  for (let milestone of RUN_SCORE_MILESTONES) {
+    if (runScore >= milestone && !reachedRunMilestones.includes(milestone)) {
+      reachedRunMilestones.push(milestone);
+      unlocked.push(`First time reaching ${milestone} points in a run!`);
+    }
+  }
+  localStorage.setItem('reachedRunMilestones', JSON.stringify(reachedRunMilestones));
+
+  // Check cumulative-based milestones
+  if (totalScore > 0 && totalScore % CUMULATIVE_SCORE_STEP === 0) {
+    unlocked.push(`Reached ${totalScore} total points!`);
+  }
+
+  // If any unlocks happened
+  if (unlocked.length > 0) {
+    showMilestonePopup(unlocked);
+  }
+}
+
+
+// --- SPARKLE EFFECT ---
+function spawnSparkle(x, y) {
+  for (let i = 0; i < 10; i++) {
+    effects.push({
+      x: x,
+      y: y,
+      vx: (Math.random() - 0.5) * 2,
+      vy: (Math.random() - 0.5) * 2,
+      life: 20
+    });
+  }
+}
+
 
 function spawnPipe() {
   const gap = Math.random() * GAP_JITTER + MIN_GAP;
@@ -66,6 +131,11 @@ function update() {
         const gap = p.bottom - p.top;
         const distance = Math.round(scale_mult * Math.abs(middleOfGap - bird.y) / (gap/2) / (gap/MAX_GAP));
         score += distance;
+
+      
+        // spawn sparkle if high precision
+        if (distance >= 5) spawnSparkle(bird.x, bird.y);
+
         p.passed = true; 
         document.getElementById('score').innerText = 'Score: ' + score; 
       }
@@ -92,6 +162,21 @@ function draw() {
     ctx.fillRect(p.x, p.bottom, 40, H - p.bottom);
   }
 
+  // Draw sparkles
+for (let s of effects) {
+  ctx.fillStyle = 'white';
+  ctx.beginPath();
+  ctx.arc(s.x, s.y, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  s.x += s.vx;
+  s.y += s.vy;
+  s.life--;
+}
+
+// Remove dead sparkles
+effects = effects.filter(s => s.life > 0);
+
 
   if (running) requestAnimationFrame(loop);
 }
@@ -105,7 +190,11 @@ function flap() { bird.vy = -4; }
 
 function endGame() {
   running = false;
+  cumulativeScore += score;
+  localStorage.setItem('cumulativeScore', cumulativeScore);
   document.getElementById('submit-score').style.display = 'block';
+
+  checkMilestones(score, cumulativeScore);
 }
 
 document.getElementById('start').addEventListener('click', () => { reset(); });
