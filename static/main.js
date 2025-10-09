@@ -3,20 +3,41 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const W = canvas.width, H = canvas.height;
 
+let lastTime = 0;
 let progressAnimating = false;
 let bird = { x: 80, y: H/2, vy: 0 };
+let wingAngle = 0;
+let wingVelocity = 0;
+
 let pipes = [];
 let frame = 0;
 let score = 0;
 let running = false;
+
+const MAX_WING_ROT = 0.5; // ~30 degrees
+const REST_ANGLE = 0;      // wings rest at 0 radians
+const DAMPING = 0.15;      // how quickly velocity decays
+const RETURN_SPEED = 0.08; // how quickly angle returns to rest
+
+
 const scale_mult = 10; // score multiplier for distance from center of gap
 const MIN_GAP = 110; // minimum gap size
 const GAP_JITTER = 60; // range of gap size variation
 const MAX_GAP = 170; // maximum gap size for scoring normalization
-const BASE_DELAY = 160; // average pipe position variation
-const PIPE_JITTER = 20; // range of pipe position variation
 
-let nextPipeFrame = BASE_DELAY;
+const BIRD_SIZE = 48;
+const BIRD_HALF = BIRD_SIZE / 2;
+const TOP_PADDING = 16;    // pixels to ignore above
+const BOTTOM_PADDING = 4;  // pixels to ignore below
+const SIDE_PADDING = 10;  // pixels to ignore side
+
+const PIPE_WIDTH = 40;
+
+const BASE_DELAY = 1400; // average pipe position variation
+const PIPE_JITTER = 200; // range of pipe position variation
+let nextPipeDelay = BASE_DELAY;
+let pipeTimer = 0;
+
 let effects = []; // for sparkle effects
 
 // --- MILESTONES CONFIG ---
@@ -30,24 +51,93 @@ let reachedRunMilestones = JSON.parse(localStorage.getItem('reachedRunMilestones
 // --- SKIN SYSTEM ---
 // Define available skins (add more as needed)
 let lootBoxActive = false;
-const ALL_SKINS = [
-  { name: 'Classic', color: 'yellow' }, 
-  { name: 'Red Blaze', color: 'red' },
-  { name: 'Blue Ice', color: 'blue' },
-  { name: 'Green Neon', color: 'lime' },
-  { name: 'Purple Spark', color: 'purple' }
-];
+const SKIN_PREVIEW_SIZE = 144; // size of skin preview in menu
+
+const ALL_SKINS = {
+  "Classic": { 
+    name: "Classic",
+    body: "/static/assets/skins/classic_body.png",
+    frontWing: "/static/assets/skins/front_wing.png",   // shared placeholder
+    backWing:  "/static/assets/skins/back_wing.png"     // shared placeholder
+  },
+  "24k": {
+    name: "24 Karat Sniffy",
+    body: "/static/assets/skins/24k_body.png",
+    frontWing: "/static/assets/skins/24k_front_wing.png",
+    backWing:  "/static/assets/skins/24k_back_wing.png"
+  }
+};
+
+
+// Preload all parts
+
+const skinImages = {};
+
+for (let key in ALL_SKINS) {
+  const skin = ALL_SKINS[key];
+  skinImages[key] = {
+    body: new Image(),
+    frontWing: new Image(),
+    backWing: new Image()
+  };
+  skinImages[key].body.src = skin.body;
+  skinImages[key].frontWing.src = skin.frontWing;
+  skinImages[key].backWing.src = skin.backWing;
+}
+
 
 // unlocked skins saved in localStorage
 let unlockedSkins = JSON.parse(localStorage.getItem('unlockedSkins') || '["Classic"]'); // always have Classic
 if (unlockedSkins.length === 0) {
   // Give the player the default skin at start
-  unlockedSkins.push('Default');
+  unlockedSkins.push('Classic');
   localStorage.setItem('unlockedSkins', JSON.stringify(unlockedSkins));
 }
 updateSkinMenuArrows();
+
 let currentSkin = localStorage.getItem('currentSkin') || 'Classic';
 let currentSkinIndex = unlockedSkins.indexOf(currentSkin) || 0;
+
+
+function createSkinPreview(skinKey) {
+  const skin = skinImages[skinKey];
+
+  // Create a canvas for the preview
+  const canvas = document.createElement('canvas');
+  canvas.width = SKIN_PREVIEW_SIZE;
+  canvas.height = SKIN_PREVIEW_SIZE;
+  const ctx = canvas.getContext('2d');
+
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+
+  const size = SKIN_PREVIEW_SIZE; // draw wings and body at full preview size
+
+  // --- Back wing ---
+  if (skin.backWing && skin.backWing.complete) {
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    ctx.rotate(0); // resting angle
+    ctx.drawImage(skin.backWing, -size / 2, -size / 2, size, size);
+    ctx.restore();
+  }
+
+  // --- Body ---
+  if (skin.body && skin.body.complete) {
+    ctx.drawImage(skin.body, centerX - size / 2, centerY - size / 2, size, size);
+  }
+
+  // --- Front wing ---
+  if (skin.frontWing && skin.frontWing.complete) {
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    ctx.rotate(0); // resting angle
+    ctx.drawImage(skin.frontWing, -size / 2, -size / 2, size, size);
+    ctx.restore();
+  }
+
+  return canvas.toDataURL(); // returns a preview image URL
+}
 
 
 function updateSkinDisplay() {
@@ -60,12 +150,22 @@ function updateSkinDisplay() {
   currentSkin = unlockedSkins[currentSkinIndex];
   localStorage.setItem('currentSkin', currentSkin);
 
-  const skinData = ALL_SKINS.find(s => s.name === currentSkin);
+  const skinData = ALL_SKINS[currentSkin];
   const display = document.getElementById('current-skin-display');
   const nameDisplay = document.getElementById('skin-name');
+
   if (display && skinData) {
-    display.style.background = skinData.color;
     nameDisplay.innerText = skinData.name;
+
+    // Show preview of the skin (body + wings) at SKIN_PREVIEW_SIZE
+    const previewURL = createSkinPreview(currentSkin);
+
+    display.innerHTML = ''; // clear previous preview
+    const img = document.createElement('img');
+    img.src = previewURL;
+    img.width = SKIN_PREVIEW_SIZE;
+    img.height = SKIN_PREVIEW_SIZE;
+    display.appendChild(img);
   }
 }
 
@@ -260,25 +360,24 @@ function spawnProgressBurstAtBar() {
 // - runScore: the score from the run that just ended (used for run-based milestones)
 // - prevTotal: previous cumulativeScore before adding runScore
 // ---------------------------
-function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null) {
-  if (!progressBar || !progressLabel) return; // safe-guard
+function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null, onComplete = null) {
+  if (!progressBar || !progressLabel) return;
 
   const newTotal = cumulativeScore;
   if (prevTotal === null) prevTotal = newTotal - runScore;
 
-  // INSTANT update (no animation)
   if (!animated) {
     const remainder = newTotal % CUMULATIVE_SCORE_STEP;
     const percent = (remainder / CUMULATIVE_SCORE_STEP) * 100;
     progressBar.style.width = percent + "%";
     progressLabel.innerText = `${remainder} / ${CUMULATIVE_SCORE_STEP}`;
+    if (onComplete) onComplete(); // <-- call immediately if not animated
     return;
   }
 
-  // --- ANIMATED FLOW ---
   progressAnimating = true;
 
-  // 1) collect run-based messages (first-time run milestones)
+  // Collect run-based messages
   const runMessages = [];
   for (let m of RUN_SCORE_MILESTONES) {
     if (runScore >= m && !reachedRunMilestones.includes(m)) {
@@ -286,20 +385,14 @@ function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null)
       runMessages.push(`First time reaching ${m} points in a run!`);
     }
   }
-  if (runMessages.length > 0) {
-    // persist right away so we don't show run-milestone twice on reload
-    localStorage.setItem('reachedRunMilestones', JSON.stringify(reachedRunMilestones));
-  }
+  if (runMessages.length > 0) localStorage.setItem('reachedRunMilestones', JSON.stringify(reachedRunMilestones));
 
-  // 2) compute which cumulative milestones are crossed between prevTotal -> newTotal
+  // Cumulative milestones
   const prevStep = Math.floor(prevTotal / CUMULATIVE_SCORE_STEP);
   const newStep = Math.floor(newTotal / CUMULATIVE_SCORE_STEP);
   const cumulativeMilestones = [];
-  for (let s = prevStep + 1; s <= newStep; s++) {
-    cumulativeMilestones.push(s * CUMULATIVE_SCORE_STEP);
-  }
+  for (let s = prevStep + 1; s <= newStep; s++) cumulativeMilestones.push(s * CUMULATIVE_SCORE_STEP);
 
-  // Helper: process runMessages sequentially, then start the numeric animation
   function processRunMessagesThenStart(index = 0) {
     if (index >= runMessages.length) {
       startNumericAnimation();
@@ -308,69 +401,53 @@ function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null)
     handleMilestoneMessage(runMessages[index], () => processRunMessagesThenStart(index + 1));
   }
 
-  // numeric animation from prevTotal -> newTotal, pausing each time we hit a cumulative milestone
-function startNumericAnimation() {
-  const totalDelta = newTotal - prevTotal;
-  const msPerPoint = 6; // animation speed
-  let animationStart = performance.now();
-  let lastTime = animationStart;
-  let currentTotal = prevTotal;
-  let nextCumulativeIndex = 0;
+  function startNumericAnimation() {
+    const totalDelta = newTotal - prevTotal;
+    const msPerPoint = 6;
+    let animationStart = performance.now();
+    let lastTime = animationStart;
+    let currentTotal = prevTotal;
+    let nextCumulativeIndex = 0;
 
-  function frame(now) {
-    const dt = now - lastTime;
-    lastTime = now;
+    function frame(now) {
+      const dt = now - lastTime;
+      lastTime = now;
 
-    // increment proportionally to elapsed time
-    const increment = dt / msPerPoint;
-    currentTotal = Math.min(newTotal, currentTotal + increment);
+      const increment = dt / msPerPoint;
+      currentTotal = Math.min(newTotal, currentTotal + increment);
 
-    // update display based on the currentTotal's remainder inside the 100-step window
-    const remainder = Math.floor(currentTotal % CUMULATIVE_SCORE_STEP);
-    const percent = (remainder / CUMULATIVE_SCORE_STEP) * 100;
-    progressBar.style.width = percent + "%";
-    progressLabel.innerText = `${remainder} / ${CUMULATIVE_SCORE_STEP}`;
+      const remainder = Math.floor(currentTotal % CUMULATIVE_SCORE_STEP);
+      const percent = (remainder / CUMULATIVE_SCORE_STEP) * 100;
+      progressBar.style.width = percent + "%";
+      progressLabel.innerText = `${remainder} / ${CUMULATIVE_SCORE_STEP}`;
 
-    // spawn small particles continuously as it fills
-    if (Math.random() < 0.6) spawnTinyProgressParticle();
+      if (Math.random() < 0.6) spawnTinyProgressParticle();
 
-    // If we are due to hit the next cumulative milestone, pause and show its popup + burst
-    if (nextCumulativeIndex < cumulativeMilestones.length &&
-        currentTotal >= cumulativeMilestones[nextCumulativeIndex]) {
-
-      const milestoneValue = cumulativeMilestones[nextCumulativeIndex];
-
-      // spawn burst visually at the bar
-      spawnProgressBurstAtBar();
-
-      // pause animation and flash
-      triggerBarFlash(() => {
-        // after flash completes, show popup
-        handleMilestoneMessage(`Reached ${milestoneValue} total points!`, () => {
-          // resume animation
-          nextCumulativeIndex++;
-          lastTime = performance.now();
-          requestAnimationFrame(frame);
+      if (nextCumulativeIndex < cumulativeMilestones.length &&
+          currentTotal >= cumulativeMilestones[nextCumulativeIndex]) {
+        const milestoneValue = cumulativeMilestones[nextCumulativeIndex];
+        spawnProgressBurstAtBar();
+        triggerBarFlash(() => {
+          handleMilestoneMessage(`Reached ${milestoneValue} total points!`, () => {
+            nextCumulativeIndex++;
+            lastTime = performance.now();
+            requestAnimationFrame(frame);
+          });
         });
-      });
+        return; // pause until flash + loot box done
+      }
 
-      // return early; animation is paused until flash + popup complete
-      return;
+      if (currentTotal < newTotal) {
+        requestAnimationFrame(frame);
+      } else {
+        progressAnimating = false;
+        if (onComplete) onComplete(); // <-- call after animation finishes
+      }
     }
 
-    // continue animating until we reach newTotal
-    if (currentTotal < newTotal) {
-      requestAnimationFrame(frame);
-    } else {
-      // done
-      progressAnimating = false;
-    }
+    requestAnimationFrame(frame);
   }
 
-  requestAnimationFrame(frame);
-}
-
-  // Kick off: process any run-based milestones first, then numeric animation
   processRunMessagesThenStart();
 }
 
@@ -408,76 +485,97 @@ function updateSkinMenuArrows() {
   }
 }
 
-function showLootBox(onComplete) {
+function showLootBox(onComplete, message = '') {
   lootBoxActive = true;
   const container = document.getElementById('game-container');
-  if (!progressContainer) return; // safe-guard
+  if (!container) return;
 
+  // Create loot box container
+  const boxWrapper = document.createElement('div');
+  boxWrapper.style.position = 'absolute';
+  boxWrapper.style.left = '50%';
+  boxWrapper.style.top = '50%';
+  boxWrapper.style.transform = 'translate(-50%, -50%)';
+  boxWrapper.style.display = 'flex';
+  boxWrapper.style.flexDirection = 'column';
+  boxWrapper.style.alignItems = 'center';
+  boxWrapper.style.gap = '10px';
+  boxWrapper.style.zIndex = 10000;
+
+  // Message above box
+  const msgDiv = document.createElement('div');
+  msgDiv.style.color = 'gold'; // make text pop
+  msgDiv.style.fontSize = '18px';
+  msgDiv.style.textAlign = 'center';
+  msgDiv.style.minHeight = '24px';
+  msgDiv.innerText = message;
+
+  // Box itself (scaled to SKIN_PREVIEW_SIZE)
   const box = document.createElement('div');
-  box.style.position = 'absolute';
-  box.style.left = '50%';
-  box.style.top = '50%';
-  box.style.transform = 'translate(-50%, -50%)';
-  box.style.width = '100px';
-  box.style.height = '100px';
+  box.style.width = SKIN_PREVIEW_SIZE + 'px';
+  box.style.height = SKIN_PREVIEW_SIZE + 'px';
   box.style.background = '#333';
   box.style.border = '3px solid gold';
   box.style.borderRadius = '12px';
-  box.style.zIndex = 10000;
   box.style.display = 'flex';
   box.style.alignItems = 'center';
   box.style.justifyContent = 'center';
-  box.style.fontSize = '16px';
-  box.style.color = 'white';
   box.style.cursor = 'pointer';
-  box.innerText = '🎁';
+  box.style.fontSize = Math.floor(SKIN_PREVIEW_SIZE * 0.22) + 'px'; // scale emoji
+  box.style.color = 'white';
+  box.innerText = '🎁'; // gift icon initially
 
-  container.appendChild(box);
+  boxWrapper.appendChild(msgDiv);
+  boxWrapper.appendChild(box);
+  container.appendChild(boxWrapper);
 
   box.addEventListener('click', () => {
-    const lockedSkins = ALL_SKINS.filter(s => !unlockedSkins.includes(s.name));
-    let message;
-    let newSkin;
+    // Get locked skins
+    const lockedSkinKeys = Object.keys(ALL_SKINS).filter(key => !unlockedSkins.includes(key));
+    let newSkinKey;
+    if (lockedSkinKeys.length > 0) {
+      newSkinKey = lockedSkinKeys[Math.floor(Math.random() * lockedSkinKeys.length)];
+      const newSkin = ALL_SKINS[newSkinKey];
 
-    if (lockedSkins.length > 0) {
-      newSkin = lockedSkins[Math.floor(Math.random() * lockedSkins.length)];
-      unlockedSkins.push(newSkin.name);
+      // Unlock
+      unlockedSkins.push(newSkinKey);
       localStorage.setItem('unlockedSkins', JSON.stringify(unlockedSkins));
       updateSkinMenuArrows();
-      currentSkin = newSkin.name;
+
+      // Set current
+      currentSkin = newSkinKey;
+      currentSkinIndex = unlockedSkins.indexOf(currentSkin);
       localStorage.setItem('currentSkin', currentSkin);
-      message = `Unlocked: ${newSkin.name}`;
-      box.style.background = newSkin.color;
+      updateSkinDisplay();
+
+      msgDiv.innerText = `Unlocked: ${newSkin.name}`;
+
+      // Show full preview (body + wings) inside box
+      box.innerHTML = '';
+      const previewURL = createSkinPreview(newSkinKey);
+      const img = new Image();
+      img.src = previewURL;
+      img.style.width = SKIN_PREVIEW_SIZE * 0.9 + 'px';
+      img.style.height = SKIN_PREVIEW_SIZE * 0.9 + 'px';
+      box.appendChild(img);
     } else {
-      // All skins unlocked: simple message instead of loot box animation
-      message = 'All skins unlocked!';
+      // All skins unlocked: show rat emoji
+      msgDiv.innerText = 'All skins unlocked!';
       box.style.background = '#666';
+      box.innerText = '🐀';
     }
 
-    // Center the message inside the loot box
-    box.innerHTML = ''; // clear old content
-    const msgDiv = document.createElement('div');
-    msgDiv.style.display = 'flex';
-    msgDiv.style.flexDirection = 'column';
-    msgDiv.style.alignItems = 'center';
-    msgDiv.style.justifyContent = 'center';
-    msgDiv.style.textAlign = 'center';
-    msgDiv.style.width = '100%';
-    msgDiv.style.height = '100%';
-    msgDiv.style.wordBreak = 'break-word';
-    msgDiv.innerText = message;
-    box.appendChild(msgDiv);
-
-    // small sparkles
+    // sparkles
     for (let i = 0; i < 15; i++) spawnTinyProgressParticle();
 
     setTimeout(() => {
-      box.remove();
-      lootBoxActive = false;
-      if (onComplete) onComplete();
+      boxWrapper.remove();
+      lootBoxActive = false; // set inactive after box disappears
+      if (onComplete) onComplete(); // call the callback after delay
     }, 1500);
   });
 }
+
 
 
 // --- GAME LOGIC ---
@@ -489,14 +587,15 @@ function reset() {
   frame = 0;
   score = 0;
   effects = [];
-  nextPipeFrame = BASE_DELAY;
+  nextPipeDelay = BASE_DELAY;
   running = true;
   document.getElementById('submit-score').style.display = 'none';
 
   hideProgressUI(); // <--- hide bar while running
 
   // start game loop
-  loop();
+  lastTime = 0;
+  requestAnimationFrame(loop)
   document.getElementById('score').innerText = 'Score: 0';
 }
 
@@ -507,10 +606,7 @@ function reset() {
 // For now it uses alert() so behavior is synchronous/blocking (keeps sequencing simple).
 // ---------------------------
 handleMilestoneMessage = function(message, onDone) {
-  showLootBox(() => {
-    //alert(message); // optional, you can skip if the loot box already says it
-    if (onDone) onDone();
-  });
+  showLootBox(onDone, message); // pass the message here
 };
 
 
@@ -559,8 +655,8 @@ function checkMilestones(runScore, totalScore,prevTotal = totalScore - runScore)
 function spawnSparkle(x, y) {
   for (let i = 0; i < 10; i++) {
     effects.push({
-      x: x,
-      y: y,
+      x: x + (Math.random() * BIRD_SIZE/4 - BIRD_SIZE/8), // ±BIRD_SIZE/8 horizontal
+      y: y - BIRD_SIZE/6 + (Math.random() * BIRD_SIZE/6 - BIRD_SIZE/12), // above center
       vx: (Math.random() - 0.5) * 2,
       vy: (Math.random() - 0.5) * 2,
       life: 20
@@ -574,60 +670,105 @@ function spawnPipe() {
   pipes.push({ x: W, top, bottom: top + gap, passed: false });
 }
 
-function update() {
+function update(dt) {
   if (!running) return;
   frame++;
-  bird.vy += 0.1; // gravity
-  bird.y += bird.vy;
+  bird.vy += 0.25*dt; // gravity
+  bird.y += bird.vy*dt;
 
-  if (frame === nextPipeFrame) {
+  wingAngle += wingVelocity * dt;
+   // Decay velocity toward 0
+  wingVelocity *= (1 - DAMPING * dt);
+
+  // Gently pull wing angle toward rest angle
+  wingAngle += (REST_ANGLE - wingAngle) * RETURN_SPEED;
+
+  // Clamp to max rotation limits
+  if (wingAngle > MAX_WING_ROT) wingAngle = MAX_WING_ROT;
+  if (wingAngle < -MAX_WING_ROT) wingAngle = -MAX_WING_ROT;
+
+  pipeTimer += dt * (1000 / 60);
+
+  if (pipeTimer >= nextPipeDelay) {
     spawnPipe();
-
-    // pick next delay with jitter
-    const jitter = Math.floor(Math.random() * (PIPE_JITTER * 2 + 1)) - PIPE_JITTER;
-    const delay = BASE_DELAY + jitter;
-
-    nextPipeFrame = frame + delay;
+    pipeTimer = 0;
+    // randomize next delay
+    nextPipeDelay = BASE_DELAY + (Math.random() * PIPE_JITTER * 2 - PIPE_JITTER);
   }
 
   for (let p of pipes) {
-    p.x -= 2.5;
+    p.x -= 4.5*dt;
   }
 
   if (bird.y > H || bird.y < 0) endGame();
 
-  for (let p of pipes) {
-    if (bird.x + 12 > p.x && bird.x - 12 < p.x + 40) {
-      if (bird.y - 12 < p.top || bird.y + 12 > p.bottom) endGame();
-      else if (!p.passed && bird.x + 2 > p.x && bird.x - 2 < p.x + 40) {
-        const middleOfGap = (p.top + p.bottom) / 2;
-        const gap = p.bottom - p.top;
-        const distance = Math.round(scale_mult * Math.abs(middleOfGap - bird.y) / (gap/2) / (gap/MAX_GAP));
-        score += distance;
+for (let p of pipes) {
+  // Horizontal overlap
+  if (bird.x + BIRD_HALF - SIDE_PADDING > p.x && bird.x - BIRD_HALF + SIDE_PADDING < p.x + PIPE_WIDTH) {
+    // Vertical overlap
+    if (bird.y - BIRD_HALF + TOP_PADDING < p.top || bird.y + BIRD_HALF - BOTTOM_PADDING > p.bottom) {
+      endGame();
+    } else if (!p.passed && bird.x > p.x + PIPE_WIDTH / 2) {
+      // Passed the pipe center: score
+      const middleOfGap = (p.top + p.bottom) / 2;
+      const gap = p.bottom - p.top;
+      const distance = Math.round(scale_mult * Math.abs(middleOfGap - bird.y) / (gap / 2) / (gap / MAX_GAP));
+      score += distance;
 
-      
-        // spawn sparkle if high precision
-        if (distance >= 5) spawnSparkle(bird.x, bird.y);
+      if (distance >= 5) spawnSparkle(bird.x, bird.y);
 
-        p.passed = true; 
-        document.getElementById('score').innerText = 'Score: ' + score; 
-      }
+      p.passed = true;
+      document.getElementById('score').innerText = 'Score: ' + score;
     }
   }
+}
 
   pipes = pipes.filter(p => p.x > -50);
 }
+
+
+function drawBird(ctx, bird) {
+  const skin = skinImages[currentSkin];
+
+  const bodyImg = skin.body;
+  const frontWingImg = skin.frontWing;
+  const backWingImg  = skin.backWing;
+
+  const bx = bird.x - BIRD_HALF;
+  const by = bird.y - BIRD_HALF;
+
+  // --- Back wing ---
+  if (backWingImg && backWingImg.complete) {
+    ctx.save();
+    ctx.translate(bird.x, bird.y); // move origin to bird center
+    ctx.rotate(wingAngle);
+    ctx.drawImage(backWingImg, - BIRD_HALF, - BIRD_HALF, BIRD_SIZE, BIRD_SIZE);
+    ctx.restore();
+  }
+
+  // --- Body ---
+  if (bodyImg && bodyImg.complete) {
+    ctx.drawImage(bodyImg, bx, by, BIRD_SIZE, BIRD_SIZE);
+  }
+
+  // --- Front wing ---
+  if (frontWingImg && frontWingImg.complete) {
+    ctx.save();
+    ctx.translate(bird.x, bird.y);
+    ctx.rotate(wingAngle);
+    ctx.drawImage(frontWingImg, - BIRD_HALF, - BIRD_HALF, BIRD_SIZE, BIRD_SIZE);
+    ctx.restore();
+  }
+}
+
+
 
 function draw() {
   ctx.fillStyle = '#70c5ce';
   ctx.fillRect(0,0,W,H);
 
   // bird
-  const skin = ALL_SKINS.find(s => s.name === currentSkin) || ALL_SKINS[0];
-  ctx.fillStyle = skin.color;
-  ctx.beginPath();
-  ctx.arc(bird.x, bird.y, 12, 0, Math.PI*2);
-  ctx.fill();
+  drawBird(ctx, bird);
 
   // pipes
   ctx.fillStyle = 'green';
@@ -647,20 +788,26 @@ for (let s of effects) {
   s.y += s.vy;
   s.life--;
 }
-
 // Remove dead sparkles
 effects = effects.filter(s => s.life > 0);
-
-
-  if (running) requestAnimationFrame(loop);
 }
 
-function loop() {
-  update();
+function loop(timestamp) {
+  if (!lastTime) lastTime = timestamp;  
+  const dt = (timestamp - lastTime) / 16.67; // normalize so dt=1 ~ 60fps
+  lastTime = timestamp;
+  update(dt);
   draw();
+
+  if (running) {
+    requestAnimationFrame(loop);
+  }
 }
 
-function flap() { bird.vy = -4; }
+function flap() {
+  bird.vy = -5; // existing lift
+  wingVelocity = -0.25; // boost wing rotation
+}
 
 function endGame() {
   running = false;
@@ -670,10 +817,10 @@ function endGame() {
   document.getElementById('submit-score').style.display = 'block';
 
   showProgressUI(); // <--- show bar again
-  updateProgressDisplay(true, score, prevTotal); // animate fill-up + effects
-
-  // show skin menu for next run
-  showMenu();
+  updateProgressDisplay(true, score, prevTotal, () => {
+    // Only show menu after loot box / milestone animations finish
+    showMenu();
+  });
 }
 
 document.querySelector('#skin-menu #start').addEventListener('click', () => {
