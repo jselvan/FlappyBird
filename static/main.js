@@ -394,8 +394,8 @@ function updateSkinMenuArrows() {
     // Only one skin: disable arrows
     leftArrow.disabled = true;
     rightArrow.disabled = true;
-    leftArrow.style.opacity = 0.3;
-    rightArrow.style.opacity = 0.3;
+    leftArrow.style.opacity = 0;
+    rightArrow.style.opacity = 0;
     leftArrow.style.cursor = 'default';
     rightArrow.style.cursor = 'default';
   } else {
@@ -454,7 +454,19 @@ function showLootBox(onComplete) {
       box.style.background = '#666';
     }
 
-    box.innerText = message;
+    // Center the message inside the loot box
+    box.innerHTML = ''; // clear old content
+    const msgDiv = document.createElement('div');
+    msgDiv.style.display = 'flex';
+    msgDiv.style.flexDirection = 'column';
+    msgDiv.style.alignItems = 'center';
+    msgDiv.style.justifyContent = 'center';
+    msgDiv.style.textAlign = 'center';
+    msgDiv.style.width = '100%';
+    msgDiv.style.height = '100%';
+    msgDiv.style.wordBreak = 'break-word';
+    msgDiv.innerText = message;
+    box.appendChild(msgDiv);
 
     // small sparkles
     for (let i = 0; i < 15; i++) spawnTinyProgressParticle();
