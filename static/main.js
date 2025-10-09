@@ -27,6 +27,74 @@ const CUMULATIVE_SCORE_STEP = 100;           // every 100 cumulative points
 let cumulativeScore = parseInt(localStorage.getItem('cumulativeScore') || '0');
 let reachedRunMilestones = JSON.parse(localStorage.getItem('reachedRunMilestones') || '[]');
 
+// --- SKIN SYSTEM ---
+// Define available skins (add more as needed)
+let lootBoxActive = false;
+const ALL_SKINS = [
+  { name: 'Classic', color: 'yellow' }, 
+  { name: 'Red Blaze', color: 'red' },
+  { name: 'Blue Ice', color: 'blue' },
+  { name: 'Green Neon', color: 'lime' },
+  { name: 'Purple Spark', color: 'purple' }
+];
+
+// unlocked skins saved in localStorage
+let unlockedSkins = JSON.parse(localStorage.getItem('unlockedSkins') || '["Classic"]'); // always have Classic
+if (unlockedSkins.length === 0) {
+  // Give the player the default skin at start
+  unlockedSkins.push('Default');
+  localStorage.setItem('unlockedSkins', JSON.stringify(unlockedSkins));
+}
+updateSkinMenuArrows();
+let currentSkin = localStorage.getItem('currentSkin') || 'Classic';
+let currentSkinIndex = unlockedSkins.indexOf(currentSkin) || 0;
+
+
+function updateSkinDisplay() {
+  if (unlockedSkins.length === 0) return;
+
+  // clamp index
+  if (currentSkinIndex < 0) currentSkinIndex = unlockedSkins.length - 1;
+  if (currentSkinIndex >= unlockedSkins.length) currentSkinIndex = 0;
+
+  currentSkin = unlockedSkins[currentSkinIndex];
+  localStorage.setItem('currentSkin', currentSkin);
+
+  const skinData = ALL_SKINS.find(s => s.name === currentSkin);
+  const display = document.getElementById('current-skin-display');
+  const nameDisplay = document.getElementById('skin-name');
+  if (display && skinData) {
+    display.style.background = skinData.color;
+    nameDisplay.innerText = skinData.name;
+  }
+}
+
+// switch left
+document.getElementById('skin-left').addEventListener('click', () => {
+  currentSkinIndex--;
+  updateSkinDisplay();
+});
+
+// switch right
+document.getElementById('skin-right').addEventListener('click', () => {
+  currentSkinIndex++;
+  updateSkinDisplay();
+});
+
+function showMenu() {
+  const menu = document.getElementById('skin-menu');
+  if (menu) menu.style.display = 'block';
+  updateSkinDisplay();
+}
+
+function hideMenu() {
+  const menu = document.getElementById('skin-menu');
+  if (menu) menu.style.display = 'none';
+}
+
+window.addEventListener('load', () => {
+  showMenu();  // show the skin selection menu at the very start
+});
 
 // --- PROGRESS BAR UI (safe, non-breaking) ---
 let progressContainer, progressBar, progressLabel;
@@ -318,6 +386,88 @@ function hideProgressUI() {
 }
 
 
+function updateSkinMenuArrows() {
+  const leftArrow = document.getElementById('skin-left');
+  const rightArrow = document.getElementById('skin-right');
+
+  if (unlockedSkins.length <= 1) { 
+    // Only one skin: disable arrows
+    leftArrow.disabled = true;
+    rightArrow.disabled = true;
+    leftArrow.style.opacity = 0.3;
+    rightArrow.style.opacity = 0.3;
+    leftArrow.style.cursor = 'default';
+    rightArrow.style.cursor = 'default';
+  } else {
+    leftArrow.disabled = false;
+    rightArrow.disabled = false;
+    leftArrow.style.opacity = 1;
+    rightArrow.style.opacity = 1;
+    leftArrow.style.cursor = 'pointer';
+    rightArrow.style.cursor = 'pointer';
+  }
+}
+
+function showLootBox(onComplete) {
+  lootBoxActive = true;
+  const container = document.getElementById('game-container');
+  if (!progressContainer) return; // safe-guard
+
+  const box = document.createElement('div');
+  box.style.position = 'absolute';
+  box.style.left = '50%';
+  box.style.top = '50%';
+  box.style.transform = 'translate(-50%, -50%)';
+  box.style.width = '100px';
+  box.style.height = '100px';
+  box.style.background = '#333';
+  box.style.border = '3px solid gold';
+  box.style.borderRadius = '12px';
+  box.style.zIndex = 10000;
+  box.style.display = 'flex';
+  box.style.alignItems = 'center';
+  box.style.justifyContent = 'center';
+  box.style.fontSize = '16px';
+  box.style.color = 'white';
+  box.style.cursor = 'pointer';
+  box.innerText = '🎁';
+
+  container.appendChild(box);
+
+  box.addEventListener('click', () => {
+    const lockedSkins = ALL_SKINS.filter(s => !unlockedSkins.includes(s.name));
+    let message;
+    let newSkin;
+
+    if (lockedSkins.length > 0) {
+      newSkin = lockedSkins[Math.floor(Math.random() * lockedSkins.length)];
+      unlockedSkins.push(newSkin.name);
+      localStorage.setItem('unlockedSkins', JSON.stringify(unlockedSkins));
+      updateSkinMenuArrows();
+      currentSkin = newSkin.name;
+      localStorage.setItem('currentSkin', currentSkin);
+      message = `Unlocked: ${newSkin.name}`;
+      box.style.background = newSkin.color;
+    } else {
+      // All skins unlocked: simple message instead of loot box animation
+      message = 'All skins unlocked!';
+      box.style.background = '#666';
+    }
+
+    box.innerText = message;
+
+    // small sparkles
+    for (let i = 0; i < 15; i++) spawnTinyProgressParticle();
+
+    setTimeout(() => {
+      box.remove();
+      lootBoxActive = false;
+      if (onComplete) onComplete();
+    }, 1500);
+  });
+}
+
+
 // --- GAME LOGIC ---
 
 function reset() {
@@ -344,15 +494,12 @@ function reset() {
 // Replace the body later with your modal/lootbox flow; it must call onDone() when finished.
 // For now it uses alert() so behavior is synchronous/blocking (keeps sequencing simple).
 // ---------------------------
-function handleMilestoneMessage(message, onDone) {
-  try {
-    alert("🎉 " + message);
-  } catch (e) {
-    // fallback if alert fails for some reason
-    console.log("Milestone:", message);
-  }
-  if (typeof onDone === 'function') onDone();
-}
+handleMilestoneMessage = function(message, onDone) {
+  showLootBox(() => {
+    //alert(message); // optional, you can skip if the loot box already says it
+    if (onDone) onDone();
+  });
+};
 
 
 function showMilestonePopup(messages) {
@@ -464,7 +611,8 @@ function draw() {
   ctx.fillRect(0,0,W,H);
 
   // bird
-  ctx.fillStyle = 'yellow';
+  const skin = ALL_SKINS.find(s => s.name === currentSkin) || ALL_SKINS[0];
+  ctx.fillStyle = skin.color;
   ctx.beginPath();
   ctx.arc(bird.x, bird.y, 12, 0, Math.PI*2);
   ctx.fill();
@@ -511,10 +659,19 @@ function endGame() {
 
   showProgressUI(); // <--- show bar again
   updateProgressDisplay(true, score, prevTotal); // animate fill-up + effects
+
+  // show skin menu for next run
+  showMenu();
 }
 
-document.getElementById('start').addEventListener('click', () => { reset(); });
-canvas.addEventListener('click', () => { if (running) flap(); else reset(); });
+document.querySelector('#skin-menu #start').addEventListener('click', () => {
+  if (lootBoxActive) return; // ignore clicks while loot box is open
+  hideMenu();  // hide the menu
+  reset();     // start the game
+});
+
+canvas.addEventListener('click', () => { if (running) flap()});
+//canvas.addEventListener('click', () => { if (running) flap(); else reset(); });
 document.addEventListener('keydown', (e) => { if (e.code === 'Space') { e.preventDefault(); if (running) flap(); else reset(); } });
 
 // leaderboard
