@@ -16,6 +16,7 @@ const BASE_DELAY = 160; // average pipe position variation
 const PIPE_JITTER = 20; // range of pipe position variation
 
 let nextPipeFrame = BASE_DELAY;
+let effects = []; // for sparkle effects
 
 // --- MILESTONES CONFIG ---
 const RUN_SCORE_MILESTONES = [10, 20, 30];   // first-time single-run milestones
@@ -26,8 +27,89 @@ let cumulativeScore = parseInt(localStorage.getItem('cumulativeScore') || '0');
 let reachedRunMilestones = JSON.parse(localStorage.getItem('reachedRunMilestones') || '[]');
 
 
-let effects = [];
+// --- PROGRESS BAR UI (safe, non-breaking) ---
+let progressContainer, progressBar, progressLabel;
 
+function createProgressUI() {
+  const wrapper = document.createElement('div');
+  wrapper.id = 'progress-wrapper';
+  wrapper.style.display = 'flex';
+  wrapper.style.flexDirection = 'column';
+  wrapper.style.alignItems = 'center';
+  wrapper.style.gap = '6px';
+  wrapper.style.fontFamily = 'sans-serif';
+  wrapper.style.zIndex = '999';
+  wrapper.style.position = 'absolute';
+
+  // progress bar container
+  progressContainer = document.createElement('div');
+  progressContainer.style.width = '200px';
+  progressContainer.style.height = '20px';
+  progressContainer.style.border = '1px solid #000';
+  progressContainer.style.background = '#ddd';
+  progressContainer.style.borderRadius = '4px';
+  progressContainer.style.overflow = 'hidden';
+
+  // fill bar
+  progressBar = document.createElement('div');
+  progressBar.style.height = '100%';
+  progressBar.style.width = '0%';
+  progressBar.style.background = 'green';
+  progressBar.style.transition = 'width 300ms linear';
+
+  // label
+  progressLabel = document.createElement('div');
+  progressLabel.style.marginTop = '4px';
+  progressLabel.style.textAlign = 'center';
+  progressLabel.style.width = '100%';
+
+  progressContainer.appendChild(progressBar);
+  wrapper.appendChild(progressContainer);
+  wrapper.appendChild(progressLabel);
+
+  document.body.appendChild(wrapper);
+
+  // function to update position relative to canvas
+  function updateProgressBarPosition() {
+    const rect = canvas.getBoundingClientRect();
+    wrapper.style.top = rect.top + 40 + 'px'; // 40px below top of canvas
+    wrapper.style.left = rect.left + rect.width / 2 + 'px';
+    wrapper.style.transform = 'translateX(-50%)';
+  }
+
+  // run initially and whenever window resizes
+  updateProgressBarPosition();
+  window.addEventListener('resize', updateProgressBarPosition);
+}
+
+// ensure DOM readiness before creating UI
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', createProgressUI);
+} else {
+  createProgressUI();
+}
+
+// safe updater (no-op if UI not created)
+function updateProgressDisplay() {
+  if (!progressBar || !progressLabel) return;
+  const progress = cumulativeScore % CUMULATIVE_SCORE_STEP;
+  const percent = (progress / CUMULATIVE_SCORE_STEP) * 100;
+  progressBar.style.width = percent + "%";
+  progressLabel.innerText = `${progress} / ${CUMULATIVE_SCORE_STEP}`;
+}
+
+function showProgressUI() {
+  const wrapper = document.getElementById('progress-wrapper');
+  if (wrapper) wrapper.style.display = 'flex';
+  updateProgressDisplay();
+}
+
+function hideProgressUI() {
+  const wrapper = document.getElementById('progress-wrapper');
+  if (wrapper) wrapper.style.display = 'none';
+}
+
+// --- GAME LOGIC ---
 
 function reset() {
   bird = { x: 80, y: H/2, vy: 0 };
@@ -38,6 +120,9 @@ function reset() {
   nextPipeFrame = BASE_DELAY;
   running = true;
   document.getElementById('submit-score').style.display = 'none';
+
+  hideProgressUI(); // <--- hide bar while running
+
   // start game loop
   loop();
   document.getElementById('score').innerText = 'Score: 0';
@@ -57,7 +142,7 @@ function showMilestonePopup(messages) {
 }
 
 
-function checkMilestones(runScore, totalScore) {
+function checkMilestones(runScore, totalScore,prevTotal = totalScore - runScore) {
   let unlocked = [];
 
   // Check run-based milestones
@@ -69,9 +154,13 @@ function checkMilestones(runScore, totalScore) {
   }
   localStorage.setItem('reachedRunMilestones', JSON.stringify(reachedRunMilestones));
 
-  // Check cumulative-based milestones
-  if (totalScore > 0 && totalScore % CUMULATIVE_SCORE_STEP === 0) {
-    unlocked.push(`Reached ${totalScore} total points!`);
+  // cumulative-based milestones — detect crossings
+  const prevStep = Math.floor(prevTotal / CUMULATIVE_SCORE_STEP);
+  const newStep = Math.floor(totalScore / CUMULATIVE_SCORE_STEP);
+  if (newStep > prevStep) {
+    for (let s = prevStep + 1; s <= newStep; s++) {
+      unlocked.push(`Reached ${s * CUMULATIVE_SCORE_STEP} total points!`);
+    }
   }
 
   // If any unlocks happened
@@ -79,7 +168,6 @@ function checkMilestones(runScore, totalScore) {
     showMilestonePopup(unlocked);
   }
 }
-
 
 // --- SPARKLE EFFECT ---
 function spawnSparkle(x, y) {
@@ -93,7 +181,6 @@ function spawnSparkle(x, y) {
     });
   }
 }
-
 
 function spawnPipe() {
   const gap = Math.random() * GAP_JITTER + MIN_GAP;
@@ -195,6 +282,7 @@ function endGame() {
   document.getElementById('submit-score').style.display = 'block';
 
   checkMilestones(score, cumulativeScore);
+  showProgressUI(); // <--- show bar again
 }
 
 document.getElementById('start').addEventListener('click', () => { reset(); });
