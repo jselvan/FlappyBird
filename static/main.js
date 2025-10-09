@@ -3,6 +3,7 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const W = canvas.width, H = canvas.height;
 
+let progressAnimating = false;
 let bird = { x: 80, y: H/2, vy: 0 };
 let pipes = [];
 let frame = 0;
@@ -89,19 +90,226 @@ if (document.readyState === 'loading') {
   createProgressUI();
 }
 
-// safe updater (no-op if UI not created)
-function updateProgressDisplay() {
-  if (!progressBar || !progressLabel) return;
-  const progress = cumulativeScore % CUMULATIVE_SCORE_STEP;
-  const percent = (progress / CUMULATIVE_SCORE_STEP) * 100;
-  progressBar.style.width = percent + "%";
-  progressLabel.innerText = `${progress} / ${CUMULATIVE_SCORE_STEP}`;
+function triggerBarFlash(onComplete) {
+  if (!progressContainer) return;
+
+  // Save original background
+  const originalBg = progressContainer.style.background;
+
+  // Flash the container background
+  progressContainer.style.transition = 'background 0.3s';
+  progressContainer.style.background = 'gold';
+
+  setTimeout(() => {
+    // Revert to original background (gray or whatever you have)
+    progressContainer.style.background = originalBg || '#555';
+    if (onComplete) onComplete();
+  }, 800); // duration of flash
 }
+
+
+// ---------------------------
+// Small particles around the bar while it's filling
+// Spawns a single small particle from the middle of the bar outward
+// ---------------------------
+function spawnTinyProgressParticle() {
+  if (!progressContainer) return;
+  const rect = progressContainer.getBoundingClientRect();
+  const x = rect.left + (Math.random() * rect.width); // random x along the bar
+  const y = rect.top + rect.height/2 + (Math.random() * 10 - 5);
+
+  const p = document.createElement('div');
+  p.style.position = 'absolute';
+  p.style.left = x + 'px';
+  p.style.top = y + 'px';
+  p.style.width = '6px';
+  p.style.height = '6px';
+  p.style.pointerEvents = 'none';
+  p.style.borderRadius = '50%';
+  p.style.background = 'white';
+  p.style.opacity = '1';
+  p.style.transform = 'translate(-50%, -50%)';
+  p.style.zIndex = '10000';
+
+  document.body.appendChild(p);
+
+  const angle = Math.random() * Math.PI * 2;
+  const distance = 20 + Math.random() * 30;
+  const dx = Math.cos(angle) * distance;
+  const dy = Math.sin(angle) * distance;
+
+  p.animate(
+    [
+      { transform: 'translate(0,0)', opacity: 1 },
+      { transform: `translate(${dx}px, ${dy}px)`, opacity: 0 }
+    ],
+    { duration: 500 + Math.random() * 300, easing: 'cubic-bezier(.1,.9,.2,1)' }
+  ).onfinish = () => p.remove();
+}
+
+// ---------------------------
+// Burst used when crossing a cumulative milestone (100, 200, ...)
+// ---------------------------
+function spawnProgressBurstAtBar() {
+  if (!progressContainer) return;
+  const rect = progressContainer.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+
+  for (let i = 0; i < 14; i++) {
+    const p = document.createElement('div');
+    p.style.position = 'absolute';
+    p.style.left = cx + 'px';
+    p.style.top = cy + 'px';
+    p.style.width = '8px';
+    p.style.height = '8px';
+    p.style.pointerEvents = 'none';
+    p.style.borderRadius = '50%';
+    p.style.background = 'gold';
+    p.style.opacity = '1';
+    p.style.transform = 'translate(-50%, -50%)';
+    p.style.zIndex = '10000';
+    document.body.appendChild(p);
+
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 30 + Math.random() * 40;
+    const dx = Math.cos(angle) * dist;
+    const dy = Math.sin(angle) * dist;
+
+    p.animate(
+      [
+        { transform: 'translate(0,0)', opacity: 1 },
+        { transform: `translate(${dx}px, ${dy}px)`, opacity: 0 }
+      ],
+      { duration: 650 + Math.random() * 300, easing: 'cubic-bezier(.1,.9,.2,1)' }
+    ).onfinish = () => p.remove();
+  }
+}
+
+// ---------------------------
+// REPLACEMENT: updateProgressDisplay(animated, runScore, prevTotal)
+// - animated: boolean, animate the fill if true
+// - runScore: the score from the run that just ended (used for run-based milestones)
+// - prevTotal: previous cumulativeScore before adding runScore
+// ---------------------------
+function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null) {
+  if (!progressBar || !progressLabel) return; // safe-guard
+
+  const newTotal = cumulativeScore;
+  if (prevTotal === null) prevTotal = newTotal - runScore;
+
+  // INSTANT update (no animation)
+  if (!animated) {
+    const remainder = newTotal % CUMULATIVE_SCORE_STEP;
+    const percent = (remainder / CUMULATIVE_SCORE_STEP) * 100;
+    progressBar.style.width = percent + "%";
+    progressLabel.innerText = `${remainder} / ${CUMULATIVE_SCORE_STEP}`;
+    return;
+  }
+
+  // --- ANIMATED FLOW ---
+  progressAnimating = true;
+
+  // 1) collect run-based messages (first-time run milestones)
+  const runMessages = [];
+  for (let m of RUN_SCORE_MILESTONES) {
+    if (runScore >= m && !reachedRunMilestones.includes(m)) {
+      reachedRunMilestones.push(m);
+      runMessages.push(`First time reaching ${m} points in a run!`);
+    }
+  }
+  if (runMessages.length > 0) {
+    // persist right away so we don't show run-milestone twice on reload
+    localStorage.setItem('reachedRunMilestones', JSON.stringify(reachedRunMilestones));
+  }
+
+  // 2) compute which cumulative milestones are crossed between prevTotal -> newTotal
+  const prevStep = Math.floor(prevTotal / CUMULATIVE_SCORE_STEP);
+  const newStep = Math.floor(newTotal / CUMULATIVE_SCORE_STEP);
+  const cumulativeMilestones = [];
+  for (let s = prevStep + 1; s <= newStep; s++) {
+    cumulativeMilestones.push(s * CUMULATIVE_SCORE_STEP);
+  }
+
+  // Helper: process runMessages sequentially, then start the numeric animation
+  function processRunMessagesThenStart(index = 0) {
+    if (index >= runMessages.length) {
+      startNumericAnimation();
+      return;
+    }
+    handleMilestoneMessage(runMessages[index], () => processRunMessagesThenStart(index + 1));
+  }
+
+  // numeric animation from prevTotal -> newTotal, pausing each time we hit a cumulative milestone
+function startNumericAnimation() {
+  const totalDelta = newTotal - prevTotal;
+  const msPerPoint = 6; // animation speed
+  let animationStart = performance.now();
+  let lastTime = animationStart;
+  let currentTotal = prevTotal;
+  let nextCumulativeIndex = 0;
+
+  function frame(now) {
+    const dt = now - lastTime;
+    lastTime = now;
+
+    // increment proportionally to elapsed time
+    const increment = dt / msPerPoint;
+    currentTotal = Math.min(newTotal, currentTotal + increment);
+
+    // update display based on the currentTotal's remainder inside the 100-step window
+    const remainder = Math.floor(currentTotal % CUMULATIVE_SCORE_STEP);
+    const percent = (remainder / CUMULATIVE_SCORE_STEP) * 100;
+    progressBar.style.width = percent + "%";
+    progressLabel.innerText = `${remainder} / ${CUMULATIVE_SCORE_STEP}`;
+
+    // spawn small particles continuously as it fills
+    if (Math.random() < 0.6) spawnTinyProgressParticle();
+
+    // If we are due to hit the next cumulative milestone, pause and show its popup + burst
+    if (nextCumulativeIndex < cumulativeMilestones.length &&
+        currentTotal >= cumulativeMilestones[nextCumulativeIndex]) {
+
+      const milestoneValue = cumulativeMilestones[nextCumulativeIndex];
+
+      // spawn burst visually at the bar
+      spawnProgressBurstAtBar();
+
+      // pause animation and flash
+      triggerBarFlash(() => {
+        // after flash completes, show popup
+        handleMilestoneMessage(`Reached ${milestoneValue} total points!`, () => {
+          // resume animation
+          nextCumulativeIndex++;
+          lastTime = performance.now();
+          requestAnimationFrame(frame);
+        });
+      });
+
+      // return early; animation is paused until flash + popup complete
+      return;
+    }
+
+    // continue animating until we reach newTotal
+    if (currentTotal < newTotal) {
+      requestAnimationFrame(frame);
+    } else {
+      // done
+      progressAnimating = false;
+    }
+  }
+
+  requestAnimationFrame(frame);
+}
+
+  // Kick off: process any run-based milestones first, then numeric animation
+  processRunMessagesThenStart();
+}
+
 
 function showProgressUI() {
   const wrapper = document.getElementById('progress-wrapper');
   if (wrapper) wrapper.style.display = 'flex';
-  updateProgressDisplay();
 }
 
 function hideProgressUI() {
@@ -109,9 +317,11 @@ function hideProgressUI() {
   if (wrapper) wrapper.style.display = 'none';
 }
 
+
 // --- GAME LOGIC ---
 
 function reset() {
+  if (progressAnimating) return; // block new game until animation finishes
   bird = { x: 80, y: H/2, vy: 0 };
   pipes = [];
   frame = 0;
@@ -127,6 +337,23 @@ function reset() {
   loop();
   document.getElementById('score').innerText = 'Score: 0';
 }
+
+
+// ---------------------------
+// Small helper used for popups / loot box callbacks
+// Replace the body later with your modal/lootbox flow; it must call onDone() when finished.
+// For now it uses alert() so behavior is synchronous/blocking (keeps sequencing simple).
+// ---------------------------
+function handleMilestoneMessage(message, onDone) {
+  try {
+    alert("🎉 " + message);
+  } catch (e) {
+    // fallback if alert fails for some reason
+    console.log("Milestone:", message);
+  }
+  if (typeof onDone === 'function') onDone();
+}
+
 
 function showMilestonePopup(messages) {
   let i = 0;
@@ -277,12 +504,13 @@ function flap() { bird.vy = -4; }
 
 function endGame() {
   running = false;
+  const prevTotal = cumulativeScore;
   cumulativeScore += score;
   localStorage.setItem('cumulativeScore', cumulativeScore);
   document.getElementById('submit-score').style.display = 'block';
 
-  checkMilestones(score, cumulativeScore);
   showProgressUI(); // <--- show bar again
+  updateProgressDisplay(true, score, prevTotal); // animate fill-up + effects
 }
 
 document.getElementById('start').addEventListener('click', () => { reset(); });
