@@ -65,6 +65,24 @@ const ALL_SKINS = {
     body: "/static/assets/skins/24k_body.png",
     frontWing: "/static/assets/skins/24k_front_wing.png",
     backWing:  "/static/assets/skins/24k_back_wing.png"
+  },
+  "Sniffyffy": {
+    name: "Sniffyffy",
+    body: "/static/assets/skins/sniffyffy_body.png",
+    frontWing: "/static/assets/skins/sniffyffy_front_wing.png",
+    backWing:  "/static/assets/skins/sniffyffy_back_wing.png"
+  },
+  "Cute": {
+    name: "Small and Cute Sniffy",
+    body: "/static/assets/skins/cute_body.png",
+    frontWing: "/static/assets/skins/cute_front_wing.png",
+    backWing:  "/static/assets/skins/cute_back_wing.png"
+  },
+  "Impostor": {
+    name: "Impostor Sniffy",
+    body: "/static/assets/skins/impostor_body.png",
+    frontWing: "/static/assets/skins/impostor_front_wing.png",
+    backWing:  "/static/assets/skins/impostor_back_wing.png"
   }
 };
 
@@ -673,55 +691,59 @@ function spawnPipe() {
 function update(dt) {
   if (!running) return;
   frame++;
-  bird.vy += 0.25*dt; // gravity
-  bird.y += bird.vy*dt;
+  bird.vy += 0.25 * dt; // gravity
+  bird.y  += bird.vy * dt;
 
+  // --- Smooth tilt update ---
+  const maxTilt = 0.5; // ~30° in radians
+  const targetAngle = Math.max(-maxTilt, Math.min(maxTilt, bird.vy / 10));
+  if (bird.angle === undefined) bird.angle = 0; // init once
+  const smoothing = 0.15; // adjust for responsiveness
+  bird.angle += (targetAngle - bird.angle) * smoothing;
+
+  // --- Wing flap physics ---
   wingAngle += wingVelocity * dt;
-   // Decay velocity toward 0
   wingVelocity *= (1 - DAMPING * dt);
-
-  // Gently pull wing angle toward rest angle
   wingAngle += (REST_ANGLE - wingAngle) * RETURN_SPEED;
 
-  // Clamp to max rotation limits
   if (wingAngle > MAX_WING_ROT) wingAngle = MAX_WING_ROT;
   if (wingAngle < -MAX_WING_ROT) wingAngle = -MAX_WING_ROT;
 
+  // --- Pipe spawning ---
   pipeTimer += dt * (1000 / 60);
-
   if (pipeTimer >= nextPipeDelay) {
     spawnPipe();
     pipeTimer = 0;
-    // randomize next delay
     nextPipeDelay = BASE_DELAY + (Math.random() * PIPE_JITTER * 2 - PIPE_JITTER);
   }
 
+  // --- Move pipes ---
   for (let p of pipes) {
-    p.x -= 4.5*dt;
+    p.x -= 4.5 * dt;
   }
 
+  // --- Bounds check ---
   if (bird.y > H || bird.y < 0) endGame();
 
-for (let p of pipes) {
-  // Horizontal overlap
-  if (bird.x + BIRD_HALF - SIDE_PADDING > p.x && bird.x - BIRD_HALF + SIDE_PADDING < p.x + PIPE_WIDTH) {
-    // Vertical overlap
-    if (bird.y - BIRD_HALF + TOP_PADDING < p.top || bird.y + BIRD_HALF - BOTTOM_PADDING > p.bottom) {
-      endGame();
-    } else if (!p.passed && bird.x > p.x + PIPE_WIDTH / 2) {
-      // Passed the pipe center: score
-      const middleOfGap = (p.top + p.bottom) / 2;
-      const gap = p.bottom - p.top;
-      const distance = Math.round(scale_mult * Math.abs(middleOfGap - bird.y) / (gap / 2) / (gap / MAX_GAP));
-      score += distance;
+  // --- Collision detection + scoring ---
+  for (let p of pipes) {
+    if (bird.x + BIRD_HALF - SIDE_PADDING > p.x &&
+        bird.x - BIRD_HALF + SIDE_PADDING < p.x + PIPE_WIDTH) {
 
-      if (distance >= 5) spawnSparkle(bird.x, bird.y);
-
-      p.passed = true;
-      document.getElementById('score').innerText = 'Score: ' + score;
+      if (bird.y - BIRD_HALF + TOP_PADDING < p.top ||
+          bird.y + BIRD_HALF - BOTTOM_PADDING > p.bottom) {
+        endGame();
+      } else if (!p.passed && bird.x > p.x + PIPE_WIDTH / 2) {
+        const middleOfGap = (p.top + p.bottom) / 2;
+        const gap = p.bottom - p.top;
+        const distance = Math.round(scale_mult * Math.abs(middleOfGap - bird.y) / (gap / 2) / (gap / MAX_GAP));
+        score += distance;
+        if (distance >= 5) spawnSparkle(bird.x, bird.y);
+        p.passed = true;
+        document.getElementById('score').innerText = 'Score: ' + score;
+      }
     }
   }
-}
 
   pipes = pipes.filter(p => p.x > -50);
 }
@@ -734,31 +756,32 @@ function drawBird(ctx, bird) {
   const frontWingImg = skin.frontWing;
   const backWingImg  = skin.backWing;
 
-  const bx = bird.x - BIRD_HALF;
-  const by = bird.y - BIRD_HALF;
+  ctx.save();
+  ctx.translate(bird.x, bird.y);
+  ctx.rotate(bird.angle || 0); // use smoothed angle
 
   // --- Back wing ---
   if (backWingImg && backWingImg.complete) {
     ctx.save();
-    ctx.translate(bird.x, bird.y); // move origin to bird center
-    ctx.rotate(wingAngle);
-    ctx.drawImage(backWingImg, - BIRD_HALF, - BIRD_HALF, BIRD_SIZE, BIRD_SIZE);
+    ctx.rotate(wingAngle); // flap relative to tilted body
+    ctx.drawImage(backWingImg, -BIRD_HALF, -BIRD_HALF, BIRD_SIZE, BIRD_SIZE);
     ctx.restore();
   }
 
   // --- Body ---
   if (bodyImg && bodyImg.complete) {
-    ctx.drawImage(bodyImg, bx, by, BIRD_SIZE, BIRD_SIZE);
+    ctx.drawImage(bodyImg, -BIRD_HALF, -BIRD_HALF, BIRD_SIZE, BIRD_SIZE);
   }
 
   // --- Front wing ---
   if (frontWingImg && frontWingImg.complete) {
     ctx.save();
-    ctx.translate(bird.x, bird.y);
-    ctx.rotate(wingAngle);
-    ctx.drawImage(frontWingImg, - BIRD_HALF, - BIRD_HALF, BIRD_SIZE, BIRD_SIZE);
+    ctx.rotate(wingAngle); // flap relative to tilted body
+    ctx.drawImage(frontWingImg, -BIRD_HALF, -BIRD_HALF, BIRD_SIZE, BIRD_SIZE);
     ctx.restore();
   }
+
+  ctx.restore();
 }
 
 
@@ -831,7 +854,7 @@ document.querySelector('#skin-menu #start').addEventListener('click', () => {
 
 canvas.addEventListener('click', () => { if (running) flap()});
 //canvas.addEventListener('click', () => { if (running) flap(); else reset(); });
-document.addEventListener('keydown', (e) => { if (e.code === 'Space') { e.preventDefault(); if (running) flap(); else reset(); } });
+document.addEventListener('keydown', (e) => { if (e.code === 'Space') { e.preventDefault(); if (running) flap()} });
 
 // leaderboard
 async function fetchLeaderboard() {
