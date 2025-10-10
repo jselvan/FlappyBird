@@ -9,12 +9,16 @@ let bird = { x: 80, y: H/2, vy: 0 };
 let wingAngle = 0;
 let wingVelocity = 0;
 
+let barsGlowing = false
+let shockTimer = 0;
+let bgOffset = 0;
+
 let pipes = [];
 let frame = 0;
 let score = 0;
 let running = false;
 
-const MAX_WING_ROT = 0.5; // ~30 degrees
+const MAX_WING_ROT = 1; // 
 const REST_ANGLE = 0;      // wings rest at 0 radians
 const DAMPING = 0.15;      // how quickly velocity decays
 const RETURN_SPEED = 0.08; // how quickly angle returns to rest
@@ -55,10 +59,28 @@ const SKIN_PREVIEW_SIZE = 144; // size of skin preview in menu
 
 const ALL_SKINS = {
   "Classic": { 
-    name: "Classic",
+    name: "Flappy Sniffy",
     body: "/static/assets/skins/classic_body.png",
     frontWing: "/static/assets/skins/front_wing.png",   // shared placeholder
     backWing:  "/static/assets/skins/back_wing.png"     // shared placeholder
+  },
+  "Idol": { 
+    name: "Idol Sniffy",
+    body: "/static/assets/skins/idol_body.png",
+    frontWing: "/static/assets/skins/idol_front_wing.png",   
+    backWing:  "/static/assets/skins/idol_back_wing.png"     
+  },
+  "Number1": { 
+    name: "Number 1 Sniffy",
+    body: "/static/assets/skins/number1_body.png",
+    frontWing: "/static/assets/skins/front_wing.png",   
+    backWing:  "/static/assets/skins/back_wing.png"     
+  },
+  "Bald": { 
+    name: "Bald Sniffy",
+    body: "/static/assets/skins/bald_body.png",
+    frontWing: "/static/assets/skins/front_wing.png",  
+    backWing:  "/static/assets/skins/back_wing.png"     
   },
   "24k": {
     name: "24 Karat Sniffy",
@@ -83,6 +105,48 @@ const ALL_SKINS = {
     body: "/static/assets/skins/impostor_body.png",
     frontWing: "/static/assets/skins/impostor_front_wing.png",
     backWing:  "/static/assets/skins/impostor_back_wing.png"
+  },
+    "Princess": {
+    name: "Princess Sniffy",
+    body: "/static/assets/skins/princess_body.png",
+    frontWing: "/static/assets/skins/cute_front_wing.png",
+    backWing:  "/static/assets/skins/cute_back_wing.png"
+  },
+    "Swiffy": {
+    name: "Taylor Sniffy",
+    body: "/static/assets/skins/swiffy_body.png",
+    frontWing: "/static/assets/skins/cute_front_wing.png",
+    backWing:  "/static/assets/skins/cute_back_wing.png"
+  },
+  "Mustang": {
+    name: "Mustang Sniffy",
+    body: "/static/assets/skins/mustang_body.png",
+    frontWing: "/static/assets/skins/mustang_front_wing.png",
+    backWing:  "/static/assets/skins/mustang_back_wing.png"
+  },
+  "Canada": {
+    name: "Team Canada Sniffy",
+    body: "/static/assets/skins/canada_body.png",
+    frontWing: "/static/assets/skins/canada_front_wing.png",
+    backWing:  "/static/assets/skins/canada_back_wing.png"
+  },
+  "Spooky": {
+    name: "Spooky Sniffy",
+    body: "/static/assets/skins/spooky_body.png",
+    frontWing: "/static/assets/skins/impostor_front_wing.png",
+    backWing:  "/static/assets/skins/impostor_back_wing.png"
+  },
+  "Retro": {
+    name: "Steamboat Sniffy",
+    body: "/static/assets/skins/retro_body.png",
+    frontWing: "/static/assets/skins/sniffyffy_front_wing.png",
+    backWing:  "/static/assets/skins/sniffyffy_back_wing.png"
+  },
+  "Hello": {
+    name: "Hello Sniffy",
+    body: "/static/assets/skins/hello_body.png",
+    frontWing: "/static/assets/skins/sniffyffy_front_wing.png",
+    backWing:  "/static/assets/skins/sniffyffy_back_wing.png"
   }
 };
 
@@ -606,6 +670,7 @@ function reset() {
   score = 0;
   effects = [];
   nextPipeDelay = BASE_DELAY;
+  barsGlowing = false;
   running = true;
   document.getElementById('submit-score').style.display = 'none';
 
@@ -686,6 +751,7 @@ function spawnPipe() {
   const gap = Math.random() * GAP_JITTER + MIN_GAP;
   const top = Math.random() * (H - gap - 100) + 50;
   pipes.push({ x: W, top, bottom: top + gap, passed: false });
+  shockTimer = 25; // ~15 frames of glow
 }
 
 function update(dt) {
@@ -732,6 +798,7 @@ function update(dt) {
 
       if (bird.y - BIRD_HALF + TOP_PADDING < p.top ||
           bird.y + BIRD_HALF - BOTTOM_PADDING > p.bottom) {
+        barsGlowing = true;
         endGame();
       } else if (!p.passed && bird.x > p.x + PIPE_WIDTH / 2) {
         const middleOfGap = (p.top + p.bottom) / 2;
@@ -787,32 +854,82 @@ function drawBird(ctx, bird) {
 
 
 function draw() {
-  ctx.fillStyle = '#70c5ce';
-  ctx.fillRect(0,0,W,H);
+  // --- Chamber background (metallic) ---
+  let bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#555');
+  bg.addColorStop(0.5, '#888');
+  bg.addColorStop(1, '#555');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
 
-  // bird
-  drawBird(ctx, bird);
+  // --- Panel seams (parallax movement) ---
+  bgOffset -= 1.5; // slower than pipes for depth
+  if (bgOffset <= -120) bgOffset = 0;
 
-  // pipes
-  ctx.fillStyle = 'green';
-  for (let p of pipes) {
-    ctx.fillRect(p.x, 0, 40, p.top);
-    ctx.fillRect(p.x, p.bottom, 40, H - p.bottom);
+  ctx.strokeStyle = '#444';
+  ctx.lineWidth = 2;
+  for (let i = bgOffset; i < W; i += 120) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i, H);
+    ctx.stroke();
   }
 
-  // Draw sparkles
-for (let s of effects) {
-  ctx.fillStyle = 'white';
-  ctx.beginPath();
-  ctx.arc(s.x, s.y, 2, 0, Math.PI * 2);
-  ctx.fill();
+  // --- Bird ---
+  drawBird(ctx, bird);
 
-  s.x += s.vx;
-  s.y += s.vy;
-  s.life--;
-}
-// Remove dead sparkles
-effects = effects.filter(s => s.life > 0);
+  // --- Bars (shock electrodes) ---
+  for (let p of pipes) {
+    let barGradient = ctx.createLinearGradient(p.x, 0, p.x + 40, 0);
+    barGradient.addColorStop(0, '#7a7a7a');
+    barGradient.addColorStop(0.5, '#d9d9d9');
+    barGradient.addColorStop(1, '#7a7a7a');
+
+    ctx.fillStyle = barGradient;
+
+  if (shockTimer > 0 || barsGlowing) {
+    ctx.shadowColor = 'cyan';
+    ctx.shadowBlur = 15;
+  } else {
+    ctx.shadowBlur = 0;
+  }
+
+    // Top bar
+    ctx.fillRect(p.x, 0, 40, p.top);
+    // Bottom bar
+    ctx.fillRect(p.x, p.bottom, 40, H - p.bottom);
+
+    ctx.shadowBlur = 0; // reset
+
+    // Bolts
+    ctx.fillStyle = '#333';
+    for (let y of [10, p.top - 10]) {
+      ctx.beginPath();
+      ctx.arc(p.x + 20, y, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (let y of [p.bottom + 10, H - 10]) {
+      ctx.beginPath();
+      ctx.arc(p.x + 20, y, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // --- Sparkles ---
+  for (let s of effects) {
+    ctx.fillStyle = 'white';
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    s.x += s.vx;
+    s.y += s.vy;
+    s.life--;
+  }
+  effects = effects.filter(s => s.life > 0);
+
+  // Decrease shock timer
+  if (shockTimer > 0) shockTimer--;
 }
 
 function loop(timestamp) {
@@ -829,7 +946,7 @@ function loop(timestamp) {
 
 function flap() {
   bird.vy = -5; // existing lift
-  wingVelocity = -0.25; // boost wing rotation
+  wingVelocity = -0.5; // boost wing rotation
 }
 
 function endGame() {
