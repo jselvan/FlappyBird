@@ -108,10 +108,10 @@ const BIRD_SIZE = 72;
 const BIRD_HALF = BIRD_SIZE / 2;
 const TOP_PADDING = 24;    // pixels to ignore above
 const BOTTOM_PADDING = 12;  // pixels to ignore below
-const SIDE_PADDING = 10;  // pixels to ignore side
+const SIDE_PADDING = 16;  // pixels to ignore side
 
 const scale_mult = 10; // score multiplier for distance from center of gap
-const MIN_GAP = BIRD_SIZE*1.5; // minimum gap size
+const MIN_GAP = BIRD_SIZE*1.7; // minimum gap size
 const GAP_JITTER = BIRD_SIZE; // range of gap size variation
 const MAX_GAP = MIN_GAP + GAP_JITTER; // maximum gap size for scoring normalization
 
@@ -140,9 +140,19 @@ const SCORE_MULT_COLORS = [
   '#88ff00'  // 10x - lime
 ];
 
+// Pipe gap distribution types
+const DISTRIBUTION_TYPES = {
+  UNIFORM: 'uniform',
+  BIMODAL: 'bimodal', 
+  TOP_SKEWED: 'top_skewed',
+  BOTTOM_SKEWED: 'bottom_skewed'
+};
+
 let effects = []; // for sparkle effects
 let scorePopups = []; // for floating score text
 let pipesPassedCount = 0; // track how many pipes have been passed
+let currentDistribution = DISTRIBUTION_TYPES.UNIFORM; // track active distribution
+let pipesSpawnedCount = 0; // track how many pipes have been spawned
 
 // --- MILESTONES CONFIG ---
 const RUN_SCORE_MILESTONES = [20, 40, 80, 160, 320, 640, 1280, 2560];   // first-time single-run milestones
@@ -819,6 +829,8 @@ function reset() {
   effects = [];
   scorePopups = []; // clear score popups
   pipesPassedCount = 0; // reset pipes passed counter
+  pipesSpawnedCount = 0; // reset pipes spawned counter
+  currentDistribution = DISTRIBUTION_TYPES.UNIFORM; // reset to uniform
   nextPipeDelay = BASE_DELAY;
   barsGlowing = false;
   running = true;
@@ -909,12 +921,126 @@ function spawnScorePopup(x, y, points, isGolden = false) {
   });
 }
 
+// --- PIPE DISTRIBUTION FUNCTIONS ---
+// Helper function for gaussian distribution (Box-Muller transform)
+function randomGaussian(mean = 0, std = 1) {
+  const u1 = Math.random();
+  const u2 = Math.random();
+  const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return z0 * std + mean;
+}
+
+// Helper function to clamp values within valid range
+function clampToValidRange(value, minY, maxY) {
+  return Math.max(minY, Math.min(maxY, value));
+}
+
+// Uniform distribution (original random behavior)
+function getUniformGapPosition(minY, maxY) {
+  return Math.random() * (maxY - minY) + minY;
+}
+
+// Bimodal distribution (more gaps at top and bottom, fewer in center)
+function getBimodalGapPosition(minY, maxY) {
+  const centerY = (minY + maxY) / 2;
+  const range = maxY - minY;
+  
+  // Create two peaks at 25% and 75% of the range
+  const peak1 = minY + range * 0.25;
+  const peak2 = minY + range * 0.75;
+  
+  // Randomly choose which peak to sample from
+  const usePeak1 = Math.random() < 0.5;
+  const targetPeak = usePeak1 ? peak1 : peak2;
+  
+  // Add gaussian noise around the chosen peak
+  const std = range * 0.15; // 15% of range as standard deviation
+  const position = randomGaussian(targetPeak, std);
+  
+  return clampToValidRange(position, minY, maxY);
+}
+
+// Top-skewed distribution (gaussian skewed toward upper third)
+function getTopSkewedGapPosition(minY, maxY) {
+  const range = maxY - minY;
+  const upperThirdCenter = minY + range * 0.25; // Center at upper quarter
+  const std = range * 0.2; // 20% of range as standard deviation
+  
+  const position = randomGaussian(upperThirdCenter, std);
+  return clampToValidRange(position, minY, maxY);
+}
+
+// Bottom-skewed distribution (gaussian skewed toward lower third)
+function getBottomSkewedGapPosition(minY, maxY) {
+  const range = maxY - minY;
+  const lowerThirdCenter = minY + range * 0.75; // Center at lower quarter
+  const std = range * 0.2; // 20% of range as standard deviation
+  
+  const position = randomGaussian(lowerThirdCenter, std);
+  return clampToValidRange(position, minY, maxY);
+}
+
+// Select distribution type based on current multiplier
+function getDistributionType() {
+  const currentMultiplier = 1 + Math.floor(pipesPassedCount / DISTANCE_MULT);
+  const distributionTypes = Object.values(DISTRIBUTION_TYPES);
+  
+  // Weight distributions based on multiplier level
+  if (currentMultiplier <= 2) {
+    // Early game: mostly uniform
+    return Math.random() < 0.7 ? DISTRIBUTION_TYPES.UNIFORM : 
+           distributionTypes[Math.floor(Math.random() * distributionTypes.length)];
+  } else if (currentMultiplier <= 5) {
+    // Mid game: balanced mix
+    return distributionTypes[Math.floor(Math.random() * distributionTypes.length)];
+  } else {
+    // Late game: favor challenging distributions
+    const challengingTypes = [DISTRIBUTION_TYPES.BIMODAL, DISTRIBUTION_TYPES.TOP_SKEWED, DISTRIBUTION_TYPES.BOTTOM_SKEWED];
+    return Math.random() < 0.8 ? 
+           challengingTypes[Math.floor(Math.random() * challengingTypes.length)] :
+           DISTRIBUTION_TYPES.UNIFORM;
+  }
+}
+
+// Get gap position based on selected distribution
+function getGapPosition(minY, maxY, distributionType) {
+  switch (distributionType) {
+    case DISTRIBUTION_TYPES.UNIFORM:
+      return getUniformGapPosition(minY, maxY);
+    case DISTRIBUTION_TYPES.BIMODAL:
+      return getBimodalGapPosition(minY, maxY);
+    case DISTRIBUTION_TYPES.TOP_SKEWED:
+      return getTopSkewedGapPosition(minY, maxY);
+    case DISTRIBUTION_TYPES.BOTTOM_SKEWED:
+      return getBottomSkewedGapPosition(minY, maxY);
+    default:
+      return getUniformGapPosition(minY, maxY);
+  }
+}
+
 function spawnPipe() {
   const gap = Math.random() * GAP_JITTER + MIN_GAP;
-  const top = Math.random() * (canvas.height - gap - 100) + 50;
+  
+  // Check if we need to pick a new distribution (every DISTANCE_MULT pipes)
+  if (pipesSpawnedCount % DISTANCE_MULT === 0) {
+    currentDistribution = getDistributionType();
+  }
+  
+  // Define valid range for gap center position
+  const minY = 50 + gap / 2; // ensure gap doesn't go above screen
+  const maxY = canvas.height - gap / 2 - 50; // ensure gap doesn't go below screen
+  
+  // Use current distribution for gap positioning
+  const gapCenter = getGapPosition(minY, maxY, currentDistribution);
+  
+  // Calculate top pipe height from gap center
+  const top = gapCenter - gap / 2;
+  
   const isGolden = Math.random() < GOLDEN_PIPE_CHANCE;
   pipes.push({ x: canvas.width, top, bottom: top + gap, passed: false, golden: isGolden });
   shockTimer = 25; // ~15 frames of glow
+  
+  pipesSpawnedCount++; // increment spawned pipe counter
 }
 
 function update(dt) {
@@ -948,7 +1074,7 @@ function update(dt) {
 
   // --- Move pipes ---
   for (let p of pipes) {
-    p.x -= 4.5 * dt;
+    p.x -= 4 * dt;
   }
 
   // --- Bounds check ---
@@ -1055,17 +1181,101 @@ function draw() {
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // --- Panel seams (parallax movement) ---
+  // --- Panel patterns based on distribution type ---
   bgOffset -= 1.5; // slower than pipes for depth
   if (bgOffset <= -120) bgOffset = 0;
 
   ctx.strokeStyle = '#444';
   ctx.lineWidth = 2;
-  for (let i = bgOffset; i < canvas.width; i += 120) {
-    ctx.beginPath();
-    ctx.moveTo(i, 0);
-    ctx.lineTo(i, canvas.height);
-    ctx.stroke();
+
+  // Draw different patterns based on current distribution
+  switch (currentDistribution) {
+    case DISTRIBUTION_TYPES.UNIFORM:
+      // Regular vertical lines (original pattern)
+      for (let i = bgOffset; i < canvas.width; i += 120) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, canvas.height);
+        ctx.stroke();
+      }
+      break;
+
+    case DISTRIBUTION_TYPES.BIMODAL:
+      // Regular vertical lines (same as uniform)
+      for (let i = bgOffset; i < canvas.width; i += 120) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, canvas.height);
+        ctx.stroke();
+      }
+      
+      // Add 3 horizontal lines to emphasize the bimodal nature
+      ctx.strokeStyle = '#555'; // slightly lighter than normal for subtle distinction
+      ctx.globalAlpha = 1; // make them faint
+      
+      // Top horizontal line (around 25% height)
+      ctx.beginPath();
+      ctx.moveTo(0, canvas.height * 0.25);
+      ctx.lineTo(canvas.width, canvas.height * 0.25);
+      ctx.stroke();
+      
+      // Middle horizontal line (50% height)
+      ctx.beginPath();
+      ctx.moveTo(0, canvas.height * 0.5);
+      ctx.lineTo(canvas.width, canvas.height * 0.5);
+      ctx.stroke();
+      
+      // Bottom horizontal line (around 75% height)
+      ctx.beginPath();
+      ctx.moveTo(0, canvas.height * 0.75);
+      ctx.lineTo(canvas.width, canvas.height * 0.75);
+      ctx.stroke();
+      
+      ctx.globalAlpha = 1; // reset alpha
+      ctx.strokeStyle = '#444'; // reset to normal
+      break;
+
+    case DISTRIBUTION_TYPES.TOP_SKEWED:
+      // Regular vertical lines with faint circles in middle of each panel
+      for (let i = bgOffset; i < canvas.width; i += 120) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, canvas.height);
+        ctx.stroke();
+        
+        // Faint circle in center of panel
+        ctx.globalAlpha = 0.2;
+        ctx.beginPath();
+        ctx.arc(i + 60, canvas.height / 2, 20, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+      break;
+
+    case DISTRIBUTION_TYPES.BOTTOM_SKEWED:
+      // Regular vertical lines with faint squares in middle of each panel
+      for (let i = bgOffset; i < canvas.width; i += 120) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, canvas.height);
+        ctx.stroke();
+        
+        // Faint square in center of panel
+        ctx.globalAlpha = 0.2;
+        ctx.strokeRect(i + 40, canvas.height / 2 - 20, 40, 40);
+        ctx.globalAlpha = 1;
+      }
+      break;
+
+    default:
+      // Fallback to uniform pattern
+      for (let i = bgOffset; i < canvas.width; i += 120) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, canvas.height);
+        ctx.stroke();
+      }
+      break;
   }
 
   // --- Bird ---
