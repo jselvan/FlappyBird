@@ -1,9 +1,98 @@
-body { font-family: Arial, Helvetica, sans-serif; display:flex; gap:24px; padding:20px; }
-#game-container { position: relative; }
-#ui { position: absolute; top: 6px; left: 6px; }
-#score { background: rgba(255,255,255,0.8); padding:6px 10px; border-radius:6px; }
-#leaderboard { width: 240px; }
-#leaders { padding-left: 18px; }
-#submit-score { margin-top: 12px; }
+/* --- Game page styles (unchanged) --- */
+body, html {
+  font: 16px/1.5 "Arial", sans-serif;
+  font-weight: bold;
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #000; /* game background */
+  color: #111; /* text color */
+}
 
+#game {
+  width: 100%;
+  max-width: 400px;   /* logical width */
+  height: auto;       /* maintain aspect ratio */
+  image-rendering: pixelated; /* crisp graphics if using pixel art */
+}
+
+#ui { position: absolute; top: 6px; left: 6px; }
+#score { background: rgba(102, 216, 224, 0.8); padding:6px 10px; border-radius:6px; }
 canvas { border: 2px solid #333; background: #7a7a7a }
+
+/* --- Leaderboard page styles --- */
+#leaderboard {
+  margin: 20px auto;
+  max-width: 500px;
+  background-color: #111;  /* dark background */
+  border-radius: 12px;
+  padding: 20px;
+  color: #f0f0f0; /* light text */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+#leaderboard h2 {
+  margin-top: 0;
+  font-size: 28px;
+  color: gold;
+  margin-bottom: 16px;
+}
+
+#leaderboard input[type="text"] {
+  padding: 8px 10px;
+  font-size: 16px;
+  border-radius: 6px;
+  border: 1px solid #555;
+  background-color: #222;
+  color: #f0f0f0;
+  margin-right: 8px;
+  width: 60%;
+}
+
+#leaderboard button {
+  padding: 8px 16px;
+  font-size: 16px;
+  border-radius: 6px;
+  border: none;
+  background-color: gold;
+  color: #111;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+#leaderboard button:hover {
+  background-color: #ffc107;
+}
+
+#leaders {
+  list-style: none;
+  padding: 0;
+  margin-top: 20px;
+}
+
+#leaders li {
+  background-color: #222;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  font-size: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: transform 0.2s, background-color 0.2s;
+}
+
+#leaders li:hover {
+  background-color: #333;
+  transform: scale(1.02);
+}
+
+#leaders li span {
+  font-weight: bold;
+  color: #ffd700; /* highlight the score */
+}

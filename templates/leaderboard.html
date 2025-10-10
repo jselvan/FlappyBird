@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Leaderboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+  </head>
+  <body>
+    <div id="leaderboard">
+      <h2>Leaderboard</h2>
+
+      <!-- Section filter with input and button side by side -->
+      <div id="section-filter-container" style="display:flex; gap:8px; margin-bottom:16px; align-items:center;">
+        <input type="text" id="section-filter" placeholder="Section or Empty for All" />
+        <button id="apply-filter">Apply</button>
+      </div>
+
+      <ol id="leaders"></ol>
+    </div>
+
+    <script src="/static/leaderboard.js"></script>
+  </body>
+</html>

@@ -14,11 +14,18 @@ db = SQLAlchemy(app)
 class Score(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(64), nullable=False)
+    section = db.Column(db.String(64), nullable=True)
     score = db.Column(db.Integer, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
-        return {'id': self.id, 'name': self.name, 'score': self.score, 'created_at': self.created_at.isoformat()}
+        return {
+            'id': self.id,
+            'name': self.name,
+            'section': self.section,
+            'score': self.score,
+            'created_at': self.created_at.isoformat()
+        }
 
 
 @app.before_request
@@ -30,24 +37,34 @@ def ensure_db():
 def index():
     return render_template('index.html')
 
+@app.route('/leaderboard')
+def leaderboard_page():
+    return render_template('leaderboard.html')
 
 @app.route('/api/leaderboard', methods=['GET'])
 def get_leaderboard():
     limit = request.args.get('limit', default=10, type=int)
-    scores = Score.query.order_by(Score.score.desc(), Score.created_at).limit(limit).all()
+    section_filter = request.args.get('section')
+
+    query = Score.query
+    if section_filter:
+        query = query.filter_by(section=section_filter)
+
+    scores = query.order_by(Score.score.desc(), Score.created_at).limit(limit).all()
     return jsonify([s.to_dict() for s in scores])
 
 
-@app.route('/api/score', methods=['POST'])
-def post_score():
+@app.route('/submit_score', methods=['POST'])
+def submit_score():
     data = request.get_json() or {}
     name = data.get('name', 'Anon')[:64]
+    section = data.get('section', 'General')[:64]
     try:
         score_val = int(data.get('score', 0))
     except Exception:
         return jsonify({'error': 'invalid score'}), 400
 
-    s = Score(name=name, score=score_val)
+    s = Score(name=name, section=section, score=score_val)
     db.session.add(s)
     db.session.commit()
     return jsonify(s.to_dict()), 201

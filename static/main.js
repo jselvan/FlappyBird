@@ -1,11 +1,90 @@
 // Minimal Flappy Bird-like game
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-const W = canvas.width, H = canvas.height;
+
+const GAME_WIDTH = 400;
+const GAME_HEIGHT = 600;
+
+// Set the canvas logical size once
+canvas.width = GAME_WIDTH;
+canvas.height = GAME_HEIGHT;
+
+// Player Info
+
+let playerName = localStorage.getItem("playerName") || null;
+let playerSection = localStorage.getItem("playerSection") || null;
+let bestScore = localStorage.getItem("bestScore") || 0;
+
+
+// unlocked skins saved in localStorage
+let unlockedSkins = JSON.parse(localStorage.getItem('unlockedSkins') || '["Classic"]'); // always have Classic
+if (unlockedSkins.length === 0) {
+  // Give the player the default skin at start
+  unlockedSkins.push('Classic');
+  localStorage.setItem('unlockedSkins', JSON.stringify(unlockedSkins));
+}
+updateSkinMenuArrows();
+
+let currentSkin = localStorage.getItem('currentSkin') || 'Classic';
+let currentSkinIndex = unlockedSkins.indexOf(currentSkin) || 0;
+
+// --- reset function ---
+function resetPlayerData() {
+  // Clear relevant localStorage items
+  localStorage.removeItem("playerName");
+  localStorage.removeItem("playerSection");
+  localStorage.removeItem("bestScore");
+  localStorage.removeItem("currentSkin");
+  localStorage.removeItem("unlockedSkins");
+
+  // Reset JS variables
+  playerName = null;
+  playerSection = null;
+  bestScore = 0;
+
+  // Reset skins
+  unlockedSkins = ["Classic"];
+  currentSkin = "Classic";
+  currentSkinIndex = 0;
+
+  // Update UI
+  updateSkinMenuArrows();
+  updateSkinDisplay(); // make sure this redraws the skin to 'Classic'
+}
+
+// --- login button ---
+document.getElementById("login-btn").addEventListener("click", () => {
+  const inputName = document.getElementById("player-name").value.trim();
+  const inputSection = document.getElementById("player-section").value.trim();
+
+  if (!inputName || !inputSection) return;
+
+  const storedName = localStorage.getItem("playerName");
+  const storedSection = localStorage.getItem("playerSection");
+
+  // If player changed, reset all relevant data
+  if (storedName && storedSection && (storedName !== inputName || storedSection !== inputSection)) {
+    resetPlayerData();
+  }
+
+  // Save new player info
+  localStorage.setItem("playerName", inputName);
+  localStorage.setItem("playerSection", inputSection);
+  playerName = inputName;
+  playerSection = inputSection;
+
+  document.getElementById("login-overlay").style.display = "none";
+});
+
+document.getElementById("leaderboard-btn").addEventListener("click", () => {
+  window.open("/leaderboard", "_blank"); // <-- remove the .html
+});
+
+// Game Info
 
 let lastTime = 0;
 let progressAnimating = false;
-let bird = { x: 80, y: H/2, vy: 0 };
+let bird = { x: 80, y: canvas.height/2, vy: 0 };
 let wingAngle = 0;
 let wingVelocity = 0;
 
@@ -168,19 +247,6 @@ for (let key in ALL_SKINS) {
 }
 
 
-// unlocked skins saved in localStorage
-let unlockedSkins = JSON.parse(localStorage.getItem('unlockedSkins') || '["Classic"]'); // always have Classic
-if (unlockedSkins.length === 0) {
-  // Give the player the default skin at start
-  unlockedSkins.push('Classic');
-  localStorage.setItem('unlockedSkins', JSON.stringify(unlockedSkins));
-}
-updateSkinMenuArrows();
-
-let currentSkin = localStorage.getItem('currentSkin') || 'Classic';
-let currentSkinIndex = unlockedSkins.indexOf(currentSkin) || 0;
-
-
 function createSkinPreview(skinKey) {
   const skin = skinImages[skinKey];
 
@@ -291,6 +357,8 @@ function createProgressUI() {
   wrapper.style.fontFamily = 'sans-serif';
   wrapper.style.zIndex = '999';
   wrapper.style.position = 'absolute';
+  wrapper.style.marginTop = '80px'; 
+
 
   // progress bar container
   progressContainer = document.createElement('div');
@@ -335,9 +403,13 @@ function createProgressUI() {
 
 // ensure DOM readiness before creating UI
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', createProgressUI);
+  document.addEventListener('DOMContentLoaded', () => {
+    createProgressUI();
+    hideProgressUI(); // start hidden until game ends
+  });
 } else {
   createProgressUI();
+  hideProgressUI(); // start hidden until game ends
 }
 
 function triggerBarFlash(onComplete) {
@@ -501,7 +573,7 @@ function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null,
       const remainder = Math.floor(currentTotal % CUMULATIVE_SCORE_STEP);
       const percent = (remainder / CUMULATIVE_SCORE_STEP) * 100;
       progressBar.style.width = percent + "%";
-      progressLabel.innerText = `${remainder} / ${CUMULATIVE_SCORE_STEP}`;
+      //progressLabel.innerText = `${remainder} / ${CUMULATIVE_SCORE_STEP}`;
 
       if (Math.random() < 0.6) spawnTinyProgressParticle();
 
@@ -664,7 +736,7 @@ function showLootBox(onComplete, message = '') {
 
 function reset() {
   if (progressAnimating) return; // block new game until animation finishes
-  bird = { x: 80, y: H/2, vy: 0 };
+  bird = { x: 80, y: canvas.height/2, vy: 0 };
   pipes = [];
   frame = 0;
   score = 0;
@@ -672,7 +744,6 @@ function reset() {
   nextPipeDelay = BASE_DELAY;
   barsGlowing = false;
   running = true;
-  document.getElementById('submit-score').style.display = 'none';
 
   hideProgressUI(); // <--- hide bar while running
 
@@ -749,8 +820,8 @@ function spawnSparkle(x, y) {
 
 function spawnPipe() {
   const gap = Math.random() * GAP_JITTER + MIN_GAP;
-  const top = Math.random() * (H - gap - 100) + 50;
-  pipes.push({ x: W, top, bottom: top + gap, passed: false });
+  const top = Math.random() * (canvas.height - gap - 100) + 50;
+  pipes.push({ x: canvas.width, top, bottom: top + gap, passed: false });
   shockTimer = 25; // ~15 frames of glow
 }
 
@@ -789,7 +860,7 @@ function update(dt) {
   }
 
   // --- Bounds check ---
-  if (bird.y > H || bird.y < 0) endGame();
+  if (bird.y > canvas.height || bird.y < 0) endGame();
 
   // --- Collision detection + scoring ---
   for (let p of pipes) {
@@ -855,12 +926,12 @@ function drawBird(ctx, bird) {
 
 function draw() {
   // --- Chamber background (metallic) ---
-  let bg = ctx.createLinearGradient(0, 0, 0, H);
+  let bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
   bg.addColorStop(0, '#555');
   bg.addColorStop(0.5, '#888');
   bg.addColorStop(1, '#555');
   ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   // --- Panel seams (parallax movement) ---
   bgOffset -= 1.5; // slower than pipes for depth
@@ -868,10 +939,10 @@ function draw() {
 
   ctx.strokeStyle = '#444';
   ctx.lineWidth = 2;
-  for (let i = bgOffset; i < W; i += 120) {
+  for (let i = bgOffset; i < canvas.width; i += 120) {
     ctx.beginPath();
     ctx.moveTo(i, 0);
-    ctx.lineTo(i, H);
+    ctx.lineTo(i, canvas.height);
     ctx.stroke();
   }
 
@@ -897,7 +968,7 @@ function draw() {
     // Top bar
     ctx.fillRect(p.x, 0, 40, p.top);
     // Bottom bar
-    ctx.fillRect(p.x, p.bottom, 40, H - p.bottom);
+    ctx.fillRect(p.x, p.bottom, 40, canvas.height - p.bottom);
 
     ctx.shadowBlur = 0; // reset
 
@@ -908,7 +979,7 @@ function draw() {
       ctx.arc(p.x + 20, y, 4, 0, Math.PI * 2);
       ctx.fill();
     }
-    for (let y of [p.bottom + 10, H - 10]) {
+    for (let y of [p.bottom + 10, canvas.height - 10]) {
       ctx.beginPath();
       ctx.arc(p.x + 20, y, 4, 0, Math.PI * 2);
       ctx.fill();
@@ -954,7 +1025,27 @@ function endGame() {
   const prevTotal = cumulativeScore;
   cumulativeScore += score;
   localStorage.setItem('cumulativeScore', cumulativeScore);
-  document.getElementById('submit-score').style.display = 'block';
+
+  // Get stored player info
+  const playerName = localStorage.getItem('playerName');
+  const playerSection = localStorage.getItem('playerSection');
+  let bestScore = parseInt(localStorage.getItem('bestScore') || "0", 10);
+
+  // If this run is a personal best, submit automatically
+  if (score > bestScore && playerName && playerSection) {
+    bestScore = score;
+    localStorage.setItem('bestScore', bestScore);
+
+    fetch("/submit_score", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: playerName,
+        section: playerSection,
+        score: score
+      })
+    }).catch(err => console.error("Error submitting score:", err));
+  }
 
   showProgressUI(); // <--- show bar again
   updateProgressDisplay(true, score, prevTotal, () => {
@@ -972,25 +1063,3 @@ document.querySelector('#skin-menu #start').addEventListener('click', () => {
 canvas.addEventListener('click', () => { if (running) flap()});
 //canvas.addEventListener('click', () => { if (running) flap(); else reset(); });
 document.addEventListener('keydown', (e) => { if (e.code === 'Space') { e.preventDefault(); if (running) flap()} });
-
-// leaderboard
-async function fetchLeaderboard() {
-  const res = await fetch('/api/leaderboard?limit=10');
-  const data = await res.json();
-  const ol = document.getElementById('leaders');
-  ol.innerHTML = '';
-  data.forEach(s => {
-    const li = document.createElement('li');
-    li.textContent = `${s.name} — ${s.score}`;
-    ol.appendChild(li);
-  });
-}
-
-document.getElementById('submit').addEventListener('click', async () => {
-  const name = document.getElementById('player-name').value || 'Anon';
-  await fetch('/api/score', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ name, score }) });
-  fetchLeaderboard();
-  document.getElementById('submit-score').style.display = 'none';
-});
-
-fetchLeaderboard();
