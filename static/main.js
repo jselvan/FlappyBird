@@ -99,7 +99,7 @@ let frame = 0;
 let score = 0;
 let running = false;
 
-const MAX_WING_ROT = 1; // 
+const MAX_WING_ROT = 1.5; // 
 const REST_ANGLE = 0;      // wings rest at 0 radians
 const DAMPING = 0.15;      // how quickly velocity decays
 const RETURN_SPEED = 0.08; // how quickly angle returns to rest
