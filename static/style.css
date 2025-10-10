@@ -82,7 +82,6 @@ canvas { border: 2px solid #333; background: #7a7a7a }
   margin-bottom: 12px;
   font-size: 16px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
   transition: transform 0.2s, background-color 0.2s;
 }
@@ -95,4 +94,14 @@ canvas { border: 2px solid #333; background: #7a7a7a }
 #leaders li span {
   font-weight: bold;
   color: #ffd700; /* highlight the score */
+}
+
+/* Skin icon styling */
+.skin-icon {
+  width: 72px !important;
+  height: 72px !important;
+  margin-right: 12px;
+  border-radius: 6px;
+  flex-shrink: 0; /* prevent shrinking */
+  background-color: #333; /* fallback if image fails to load */
 }

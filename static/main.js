@@ -1402,7 +1402,8 @@ function endGame() {
       body: JSON.stringify({
         name: playerName,
         section: playerSection,
-        score: score
+        score: score,
+        skin: currentSkin // submit the currently selected skin
       })
     }).catch(err => console.error("Error submitting score:", err));
   }

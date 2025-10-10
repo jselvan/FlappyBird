@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, url_for
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 import os
@@ -16,14 +16,21 @@ class Score(db.Model):
     name = db.Column(db.String(64), nullable=False)
     section = db.Column(db.String(64), nullable=True)
     score = db.Column(db.Integer, nullable=False)
+    skin = db.Column(db.String(64), nullable=True, default='Classic')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
+        # Generate icon URL directly from skin name (skin_name.webp)
+        skin_name = self.skin or 'Classic'  # fallback to Classic if skin is None
+        icon_url = url_for('static', filename=f'assets/icons/{skin_name}.webp')
+        
         return {
             'id': self.id,
             'name': self.name,
             'section': self.section,
             'score': self.score,
+            'skin': self.skin,
+            'skin_icon_url': icon_url,
             'created_at': self.created_at.isoformat()
         }
 
@@ -59,12 +66,13 @@ def submit_score():
     data = request.get_json() or {}
     name = data.get('name', 'Anon')[:64]
     section = data.get('section', 'General')[:64]
+    skin = data.get('skin', 'Classic')[:64]
     try:
         score_val = int(data.get('score', 0))
     except Exception:
         return jsonify({'error': 'invalid score'}), 400
 
-    s = Score(name=name, section=section, score=score_val)
+    s = Score(name=name, section=section, score=score_val, skin=skin)
     db.session.add(s)
     db.session.commit()
     return jsonify(s.to_dict()), 201

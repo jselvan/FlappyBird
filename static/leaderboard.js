@@ -1,8 +1,8 @@
 // Fetch and display leaderboard
 async function loadLeaderboard(section = "") {
-  let url = "api/leaderboard";
+  let url = "api/leaderboard?limit=5";
   if (section.trim() !== "") {
-    url += "?section=" + encodeURIComponent(section.trim());
+    url += "&section=" + encodeURIComponent(section.trim());
   }
 
   try {
@@ -22,7 +22,20 @@ async function loadLeaderboard(section = "") {
 
     scores.forEach(s => {
       const li = document.createElement("li");
-      li.textContent = `${s.name} - ${s.score} pts (Section: ${s.section || "N/A"})`;
+      
+      // Create skin icon
+      const skinIcon = document.createElement("img");
+      skinIcon.src = s.skin_icon_url; // Use the URL provided by the API
+      skinIcon.alt = `${s.skin || 'Classic'} skin`;
+      skinIcon.className = "skin-icon"; // Add class for CSS styling
+      
+      // Create text content
+      const textNode = document.createTextNode(`${s.name} - ${s.score} pts (Section: ${s.section || "N/A"})`);
+      
+      // Add icon and text to list item
+      li.appendChild(skinIcon);
+      li.appendChild(textNode);
+      
       list.appendChild(li);
     });
   } catch (err) {
