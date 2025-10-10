@@ -104,17 +104,17 @@ const REST_ANGLE = 0;      // wings rest at 0 radians
 const DAMPING = 0.15;      // how quickly velocity decays
 const RETURN_SPEED = 0.08; // how quickly angle returns to rest
 
+const BIRD_SIZE = 72;
+const BIRD_HALF = BIRD_SIZE / 2;
+const TOP_PADDING = 24;    // pixels to ignore above
+const BOTTOM_PADDING = 12;  // pixels to ignore below
+const SIDE_PADDING = 10;  // pixels to ignore side
 
 const scale_mult = 10; // score multiplier for distance from center of gap
-const MIN_GAP = 110; // minimum gap size
-const GAP_JITTER = 60; // range of gap size variation
-const MAX_GAP = 170; // maximum gap size for scoring normalization
+const MIN_GAP = BIRD_SIZE*1.5; // minimum gap size
+const GAP_JITTER = BIRD_SIZE; // range of gap size variation
+const MAX_GAP = MIN_GAP + GAP_JITTER; // maximum gap size for scoring normalization
 
-const BIRD_SIZE = 48;
-const BIRD_HALF = BIRD_SIZE / 2;
-const TOP_PADDING = 16;    // pixels to ignore above
-const BOTTOM_PADDING = 4;  // pixels to ignore below
-const SIDE_PADDING = 10;  // pixels to ignore side
 
 const PIPE_WIDTH = 40;
 
@@ -122,6 +122,8 @@ const BASE_DELAY = 1400; // average pipe position variation
 const PIPE_JITTER = 200; // range of pipe position variation
 let nextPipeDelay = BASE_DELAY;
 let pipeTimer = 0;
+
+const GOLDEN_PIPE_CHANCE = 1/30; // chance for a pipe to be golden (1 in 30)
 
 let effects = []; // for sparkle effects
 
@@ -683,7 +685,12 @@ function showLootBox(onComplete, message = '') {
   boxWrapper.appendChild(box);
   container.appendChild(boxWrapper);
 
+  let boxClicked = false; // prevent multiple clicks
+
   box.addEventListener('click', () => {
+    if (boxClicked) return; // ignore if already clicked
+    boxClicked = true;
+
     // Get locked skins
     const lockedSkinKeys = Object.keys(ALL_SKINS).filter(key => !unlockedSkins.includes(key));
     let newSkinKey;
@@ -811,9 +818,10 @@ function spawnSparkle(x, y) {
     effects.push({
       x: x + (Math.random() * BIRD_SIZE/4 - BIRD_SIZE/8), // ±BIRD_SIZE/8 horizontal
       y: y - BIRD_SIZE/6 + (Math.random() * BIRD_SIZE/6 - BIRD_SIZE/12), // above center
-      vx: (Math.random() - 0.5) * 2,
-      vy: (Math.random() - 0.5) * 2,
-      life: 20
+      vx: (Math.random() - 0.5) * 6, 
+      vy: (Math.random() - 0.5) * 6, 
+      life: 30,
+      size: 4 // increased sparkle size
     });
   }
 }
@@ -821,14 +829,15 @@ function spawnSparkle(x, y) {
 function spawnPipe() {
   const gap = Math.random() * GAP_JITTER + MIN_GAP;
   const top = Math.random() * (canvas.height - gap - 100) + 50;
-  pipes.push({ x: canvas.width, top, bottom: top + gap, passed: false });
+  const isGolden = Math.random() < GOLDEN_PIPE_CHANCE;
+  pipes.push({ x: canvas.width, top, bottom: top + gap, passed: false, golden: isGolden });
   shockTimer = 25; // ~15 frames of glow
 }
 
 function update(dt) {
   if (!running) return;
   frame++;
-  bird.vy += 0.25 * dt; // gravity
+  bird.vy += 0.22 * dt; // gravity
   bird.y  += bird.vy * dt;
 
   // --- Smooth tilt update ---
@@ -874,9 +883,24 @@ function update(dt) {
       } else if (!p.passed && bird.x > p.x + PIPE_WIDTH / 2) {
         const middleOfGap = (p.top + p.bottom) / 2;
         const gap = p.bottom - p.top;
-        const distance = Math.round(scale_mult * Math.abs(middleOfGap - bird.y) / (gap / 2) / (gap / MAX_GAP));
+        let distance = Math.round(scale_mult * Math.abs(middleOfGap - bird.y) / (gap / 2) / (gap / MAX_GAP));
+        
+        // Triple points for golden pipes
+        if (p.golden) {
+          distance *= 3;
+        }
+        
         score += distance;
-        if (distance >= 5) spawnSparkle(bird.x, bird.y);
+        if (distance >= 5) {
+          if (p.golden) {
+            // More sparkles for golden pipes
+            spawnSparkle(bird.x, bird.y);
+            spawnSparkle(bird.x, bird.y);
+            spawnSparkle(bird.x, bird.y);
+          } else {
+            spawnSparkle(bird.x, bird.y);
+          }
+        }
         p.passed = true;
         document.getElementById('score').innerText = 'Score: ' + score;
       }
@@ -952,9 +976,18 @@ function draw() {
   // --- Bars (shock electrodes) ---
   for (let p of pipes) {
     let barGradient = ctx.createLinearGradient(p.x, 0, p.x + 40, 0);
-    barGradient.addColorStop(0, '#7a7a7a');
-    barGradient.addColorStop(0.5, '#d9d9d9');
-    barGradient.addColorStop(1, '#7a7a7a');
+    
+    if (p.golden) {
+      // Golden pipe gradient
+      barGradient.addColorStop(0, '#b8860b'); // dark gold
+      barGradient.addColorStop(0.5, '#ffd700'); // bright gold
+      barGradient.addColorStop(1, '#b8860b'); // dark gold
+    } else {
+      // Regular metallic gradient
+      barGradient.addColorStop(0, '#7a7a7a');
+      barGradient.addColorStop(0.5, '#d9d9d9');
+      barGradient.addColorStop(1, '#7a7a7a');
+    }
 
     ctx.fillStyle = barGradient;
 
@@ -988,7 +1021,7 @@ function draw() {
 
   // --- Sparkles ---
   for (let s of effects) {
-    ctx.fillStyle = 'white';
+    ctx.fillStyle = 'gold';
     ctx.beginPath();
     ctx.arc(s.x, s.y, 2, 0, Math.PI * 2);
     ctx.fill();
