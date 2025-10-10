@@ -126,6 +126,7 @@ let pipeTimer = 0;
 const GOLDEN_PIPE_CHANCE = 1/30; // chance for a pipe to be golden (1 in 30)
 
 let effects = []; // for sparkle effects
+let scorePopups = []; // for floating score text
 
 // --- MILESTONES CONFIG ---
 const RUN_SCORE_MILESTONES = [20, 40, 60, 80, 100];   // first-time single-run milestones
@@ -373,7 +374,7 @@ function createProgressUI() {
   progressBar = document.createElement('div');
   progressBar.style.height = '100%';
   progressBar.style.width = '0%';
-  progressBar.style.background = 'green';
+  progressBar.style.background = '#00aaff'; // blue instead of green
   progressBar.style.transition = 'width 300ms linear';
 
   // label
@@ -748,6 +749,7 @@ function reset() {
   frame = 0;
   score = 0;
   effects = [];
+  scorePopups = []; // clear score popups
   nextPipeDelay = BASE_DELAY;
   barsGlowing = false;
   running = true;
@@ -826,6 +828,18 @@ function spawnSparkle(x, y) {
   }
 }
 
+// --- SCORE POPUP EFFECT ---
+function spawnScorePopup(x, y, points, isGolden = false) {
+  scorePopups.push({
+    x: x,
+    y: y,
+    text: `+${points}`,
+    life: 60, // frames to display
+    maxLife: 60,
+    color: isGolden ? '#ffd700' : '#00aaff' // gold for golden pipes, blue for regular
+  });
+}
+
 function spawnPipe() {
   const gap = Math.random() * GAP_JITTER + MIN_GAP;
   const top = Math.random() * (canvas.height - gap - 100) + 50;
@@ -894,6 +908,10 @@ function update(dt) {
         }
         
         score += distance;
+        
+        // Show score popup slightly to the right of the bird
+        spawnScorePopup(bird.x + BIRD_HALF + 10, bird.y - BIRD_HALF, distance, p.golden);
+        
         if (distance >= 5) {
           if (p.golden) {
             // More sparkles for golden pipes
@@ -1034,6 +1052,22 @@ function draw() {
     s.life--;
   }
   effects = effects.filter(s => s.life > 0);
+
+  // --- Score Popups ---
+  for (let popup of scorePopups) {
+    const alpha = popup.life / popup.maxLife; // fade out over time
+    ctx.fillStyle = popup.color;
+    ctx.globalAlpha = alpha;
+    ctx.font = '20px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(popup.text, popup.x, popup.y);
+    
+    // Float upward
+    popup.y -= 1.5;
+    popup.life--;
+  }
+  scorePopups = scorePopups.filter(p => p.life > 0);
+  ctx.globalAlpha = 1; // reset alpha
 
   // Decrease shock timer
   if (shockTimer > 0) shockTimer--;
