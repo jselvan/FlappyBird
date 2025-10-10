@@ -124,12 +124,28 @@ let nextPipeDelay = BASE_DELAY;
 let pipeTimer = 0;
 
 const GOLDEN_PIPE_CHANCE = 1/30; // chance for a pipe to be golden (1 in 30)
+const DISTANCE_MULT = 10; // every X pipes passed increases base score by 1
+
+// Color progression for base score multiplier visual indicator
+const SCORE_MULT_COLORS = [
+  '#00aaff', // 1x - blue (starting color)
+  '#00ff00', // 2x - green
+  '#ffff00', // 3x - yellow
+  '#ff8800', // 4x - orange
+  '#ff0000', // 5x - red
+  '#ff00ff', // 6x - magenta
+  '#8800ff', // 7x - purple
+  '#00ffff', // 8x - cyan
+  '#ff0088', // 9x - pink
+  '#88ff00'  // 10x - lime
+];
 
 let effects = []; // for sparkle effects
 let scorePopups = []; // for floating score text
+let pipesPassedCount = 0; // track how many pipes have been passed
 
 // --- MILESTONES CONFIG ---
-const RUN_SCORE_MILESTONES = [20, 40, 60, 80, 100];   // first-time single-run milestones
+const RUN_SCORE_MILESTONES = [20, 40, 80, 160, 320, 640, 1280, 2560];   // first-time single-run milestones
 const CUMULATIVE_SCORE_STEP = 100;           // every 100 cumulative points
 
 // --- SKIN SYSTEM ---
@@ -510,6 +526,37 @@ function spawnProgressBurstAtBar() {
 }
 
 // ---------------------------
+// Helper functions for progressive milestone calculation
+// ---------------------------
+function getNextMilestone(score) {
+  let milestone = CUMULATIVE_SCORE_STEP; // start at 100
+  let milestoneNumber = 1;
+  
+  while (milestone <= score) {
+    milestoneNumber++;
+    milestone += milestoneNumber * CUMULATIVE_SCORE_STEP;
+  }
+  
+  return milestone;
+}
+
+function getPreviousMilestone(score) {
+  if (score < CUMULATIVE_SCORE_STEP) return 0;
+  
+  let milestone = 0;
+  let nextMilestone = CUMULATIVE_SCORE_STEP;
+  let milestoneNumber = 1;
+  
+  while (nextMilestone <= score) {
+    milestone = nextMilestone;
+    milestoneNumber++;
+    nextMilestone += milestoneNumber * CUMULATIVE_SCORE_STEP;
+  }
+  
+  return milestone;
+}
+
+// ---------------------------
 // REPLACEMENT: updateProgressDisplay(animated, runScore, prevTotal)
 // - animated: boolean, animate the fill if true
 // - runScore: the score from the run that just ended (used for run-based milestones)
@@ -522,10 +569,15 @@ function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null,
   if (prevTotal === null) prevTotal = newTotal - runScore;
 
   if (!animated) {
-    const remainder = newTotal % CUMULATIVE_SCORE_STEP;
-    const percent = (remainder / CUMULATIVE_SCORE_STEP) * 100;
+    // Calculate progress toward next milestone
+    const nextMilestone = getNextMilestone(newTotal);
+    const prevMilestone = getPreviousMilestone(newTotal);
+    const progress = newTotal - prevMilestone;
+    const milestoneRange = nextMilestone - prevMilestone;
+    const percent = (progress / milestoneRange) * 100;
+    
     progressBar.style.width = percent + "%";
-    progressLabel.innerText = `${remainder} / ${CUMULATIVE_SCORE_STEP}`;
+    progressLabel.innerText = `${progress} / ${milestoneRange}`;
     if (onComplete) onComplete(); // <-- call immediately if not animated
     return;
   }
@@ -544,11 +596,22 @@ function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null,
   }
   if (runMessages.length > 0) localStorage.setItem('reachedRunMilestones', JSON.stringify(reachedRunMilestones));
 
-  // Cumulative milestones
-  const prevStep = Math.floor(prevTotal / CUMULATIVE_SCORE_STEP);
-  const newStep = Math.floor(newTotal / CUMULATIVE_SCORE_STEP);
+  // Cumulative milestones with increasing thresholds (100, 200, 300, 400, ...)
   const cumulativeMilestones = [];
-  for (let s = prevStep + 1; s <= newStep; s++) cumulativeMilestones.push(s * CUMULATIVE_SCORE_STEP);
+  
+  // Calculate which milestone we should be checking
+  let milestone = CUMULATIVE_SCORE_STEP; // start at 100
+  let milestoneNumber = 1;
+  
+  // Find all milestones between prevTotal and newTotal
+  while (milestone <= newTotal) {
+    if (milestone > prevTotal) {
+      cumulativeMilestones.push(milestone);
+    }
+    // Increase by an additional 100 each time: 100, 200, 300, 400, 500...
+    milestoneNumber++;
+    milestone += milestoneNumber * CUMULATIVE_SCORE_STEP;
+  }
 
   function processRunMessagesThenStart(index = 0) {
     if (index >= runMessages.length) {
@@ -573,10 +636,15 @@ function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null,
       const increment = dt / msPerPoint;
       currentTotal = Math.min(newTotal, currentTotal + increment);
 
-      const remainder = Math.floor(currentTotal % CUMULATIVE_SCORE_STEP);
-      const percent = (remainder / CUMULATIVE_SCORE_STEP) * 100;
+      // Calculate progress toward next milestone
+      const nextMilestone = getNextMilestone(currentTotal);
+      const prevMilestone = getPreviousMilestone(currentTotal);
+      const progress = currentTotal - prevMilestone;
+      const milestoneRange = nextMilestone - prevMilestone;
+      const percent = (progress / milestoneRange) * 100;
+      
       progressBar.style.width = percent + "%";
-      //progressLabel.innerText = `${remainder} / ${CUMULATIVE_SCORE_STEP}`;
+      //progressLabel.innerText = `${Math.floor(progress)} / ${milestoneRange}`;
 
       if (Math.random() < 0.6) spawnTinyProgressParticle();
 
@@ -750,6 +818,7 @@ function reset() {
   score = 0;
   effects = [];
   scorePopups = []; // clear score popups
+  pipesPassedCount = 0; // reset pipes passed counter
   nextPipeDelay = BASE_DELAY;
   barsGlowing = false;
   running = true;
@@ -897,22 +966,29 @@ function update(dt) {
       } else if (!p.passed && bird.x > p.x + PIPE_WIDTH / 2) {
         const middleOfGap = (p.top + p.bottom) / 2;
         const gap = p.bottom - p.top;
-        let distance = Math.round(scale_mult * Math.abs(middleOfGap - bird.y) / (gap / 2) / (gap / MAX_GAP));
         
-        // Ensure minimum 1 point for passing any pipe
-        distance = Math.max(1, distance);
+        // Calculate raw distance multiplier (for precision bonus)
+        const rawDistanceMultiplier = Math.round(scale_mult * Math.abs(middleOfGap - bird.y) / (gap / 2) / (gap / MAX_GAP));
+        const distanceMultiplier = Math.max(1, rawDistanceMultiplier); // minimum 1x multiplier
+        
+        // Calculate progressive base score
+        const baseScore = 1 + Math.floor(pipesPassedCount / DISTANCE_MULT);
+        
+        // Calculate final score: baseScore * distance * goldenMultiplier
+        let finalScore = baseScore * distanceMultiplier;
         
         // Triple points for golden pipes
         if (p.golden) {
-          distance *= 3;
+          finalScore *= 3;
         }
         
-        score += distance;
+        score += finalScore;
         
         // Show score popup slightly to the right of the bird
-        spawnScorePopup(bird.x + BIRD_HALF + 10, bird.y - BIRD_HALF, distance, p.golden);
+        spawnScorePopup(bird.x + BIRD_HALF + 10, bird.y - BIRD_HALF, finalScore, p.golden);
         
-        if (distance >= 5) {
+        // Sparkles based on raw distance, not final score
+        if (rawDistanceMultiplier >= 5) {
           if (p.golden) {
             // More sparkles for golden pipes
             spawnSparkle(bird.x, bird.y);
@@ -923,6 +999,7 @@ function update(dt) {
           }
         }
         p.passed = true;
+        pipesPassedCount++; // increment the pipes passed counter
         document.getElementById('score').innerText = 'Score: ' + score;
       }
     }
@@ -1013,7 +1090,10 @@ function draw() {
     ctx.fillStyle = barGradient;
 
   if (shockTimer > 0 || barsGlowing) {
-    ctx.shadowColor = 'cyan';
+    // Get current base score multiplier and corresponding color
+    const currentMultiplier = 1 + Math.floor(pipesPassedCount / DISTANCE_MULT);
+    const colorIndex = (currentMultiplier - 1) % SCORE_MULT_COLORS.length;
+    ctx.shadowColor = SCORE_MULT_COLORS[colorIndex];
     ctx.shadowBlur = 15;
   } else {
     ctx.shadowBlur = 0;
