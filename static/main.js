@@ -15,6 +15,9 @@ let playerName = localStorage.getItem("playerName") || null;
 let playerSection = localStorage.getItem("playerSection") || null;
 let bestScore = localStorage.getItem("bestScore") || 0;
 
+// --- TRACKERS ---
+let cumulativeScore = parseInt(localStorage.getItem('cumulativeScore') || '0');
+let reachedRunMilestones = JSON.parse(localStorage.getItem('reachedRunMilestones') || '[]');
 
 // unlocked skins saved in localStorage
 let unlockedSkins = JSON.parse(localStorage.getItem('unlockedSkins') || '["Classic"]'); // always have Classic
@@ -36,11 +39,15 @@ function resetPlayerData() {
   localStorage.removeItem("bestScore");
   localStorage.removeItem("currentSkin");
   localStorage.removeItem("unlockedSkins");
+  localStorage.removeItem("cumulativeScore");
+  localStorage.removeItem("reachedRunMilestones");
 
   // Reset JS variables
   playerName = null;
   playerSection = null;
   bestScore = 0;
+  cumulativeScore = 0;
+  reachedRunMilestones = [];
 
   // Reset skins
   unlockedSkins = ["Classic"];
@@ -119,12 +126,8 @@ let pipeTimer = 0;
 let effects = []; // for sparkle effects
 
 // --- MILESTONES CONFIG ---
-const RUN_SCORE_MILESTONES = [10, 20, 30];   // first-time single-run milestones
+const RUN_SCORE_MILESTONES = [20, 40, 60, 80, 100];   // first-time single-run milestones
 const CUMULATIVE_SCORE_STEP = 100;           // every 100 cumulative points
-
-// --- TRACKERS ---
-let cumulativeScore = parseInt(localStorage.getItem('cumulativeScore') || '0');
-let reachedRunMilestones = JSON.parse(localStorage.getItem('reachedRunMilestones') || '[]');
 
 // --- SKIN SYSTEM ---
 // Define available skins (add more as needed)
@@ -528,8 +531,10 @@ function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null,
 
   // Collect run-based messages
   const runMessages = [];
+  console.log("Checking run milestones:", { runScore, reachedRunMilestones, RUN_SCORE_MILESTONES });
   for (let m of RUN_SCORE_MILESTONES) {
     if (runScore >= m && !reachedRunMilestones.includes(m)) {
+      console.log(`New milestone reached: ${m}`);
       reachedRunMilestones.push(m);
       runMessages.push(`First time reaching ${m} points in a run!`);
     }
