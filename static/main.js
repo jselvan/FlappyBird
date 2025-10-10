@@ -75,11 +75,6 @@ document.getElementById("login-btn").addEventListener("click", () => {
 
   document.getElementById("login-overlay").style.display = "none";
 });
-
-document.getElementById("leaderboard-btn").addEventListener("click", () => {
-  window.open("/leaderboard", "_blank"); // <-- remove the .html
-});
-
 // Game Info
 
 let lastTime = 0;
