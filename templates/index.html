@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Flappy Bird - Flask</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <title>Flappy Sniffy</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"/>
     <style>
       /* Minimal overlay styles — you can move these to style.css as you like */
       #login-overlay {
@@ -55,7 +55,7 @@
       <!-- LOGIN OVERLAY: appears on top of the canvas until player supplies name/section -->
       <div id="login-overlay" aria-live="polite">
         <!-- Image on top -->
-        <img src="/static/assets/flappysniffy.png" alt="Flappy Sniffy" style="width:200px; margin-bottom:16px; display:block; margin-left:auto; margin-right:auto;" />
+        <img src="{{ url_for('static', filename='assets/flappysniffy.png') }}" alt="Flappy Sniffy" style="width:200px; margin-bottom:16px; display:block; margin-left:auto; margin-right:auto;" />
         <h2 style="margin:0 0 6px 0;">Welcome to Flappy Sniffy!</h2>
         <input id="player-name" placeholder="Your name" type="text" autocomplete="name" />
         <input id="player-section" placeholder="Your section number" type="text" autocomplete="off" />
@@ -72,7 +72,7 @@
       <div id="ui" style="position:absolute; top:6px; left:0; width:100%; display:flex; justify-content:space-between; padding:0 6px; box-sizing:border-box;">
         <div id="score">Score: 0</div>
         <!-- Use an anchor so a new tab opens reliably across browsers/devices -->
-        <a id="leaderboard-btn" href="/leaderboard" target="_blank" rel="noopener noreferrer" style="text-decoration:none; background:#fff8d6; padding:6px 8px; border-radius:6px; color:#111; font-weight:600;">Leaderboard</a>
+        <a id="leaderboard-btn" href="leaderboard" target="_blank" rel="noopener" style="text-decoration:none; background:#fff8d6; padding:6px 8px; border-radius:6px; color:#111; font-weight:600;">Leaderboard</a>
       </div>
 
       <!-- Skin menu (centered overlay for choosing skin before run) -->
@@ -88,7 +88,7 @@
       </div>
     </div>
 
-    <script src="/static/main.js"></script>
+    <script src="{{url_for('static', filename='main.js')}}"></script>
   </body>
 </html>
 

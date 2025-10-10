@@ -139,93 +139,93 @@ const SKIN_PREVIEW_SIZE = 144; // size of skin preview in menu
 const ALL_SKINS = {
   "Classic": { 
     name: "Flappy Sniffy",
-    body: "/static/assets/skins/classic_body.png",
-    frontWing: "/static/assets/skins/front_wing.png",   // shared placeholder
-    backWing:  "/static/assets/skins/back_wing.png"     // shared placeholder
+    body: "static/assets/skins/classic_body.png",
+    frontWing: "static/assets/skins/front_wing.png",   // shared placeholder
+    backWing:  "static/assets/skins/back_wing.png"     // shared placeholder
   },
   "Idol": { 
     name: "Idol Sniffy",
-    body: "/static/assets/skins/idol_body.png",
-    frontWing: "/static/assets/skins/idol_front_wing.png",   
-    backWing:  "/static/assets/skins/idol_back_wing.png"     
+    body: "static/assets/skins/idol_body.png",
+    frontWing: "static/assets/skins/idol_front_wing.png",   
+    backWing:  "static/assets/skins/idol_back_wing.png"     
   },
   "Number1": { 
     name: "Number 1 Sniffy",
-    body: "/static/assets/skins/number1_body.png",
-    frontWing: "/static/assets/skins/front_wing.png",   
-    backWing:  "/static/assets/skins/back_wing.png"     
+    body: "static/assets/skins/number1_body.png",
+    frontWing: "static/assets/skins/front_wing.png",   
+    backWing:  "static/assets/skins/back_wing.png"     
   },
   "Bald": { 
     name: "Bald Sniffy",
-    body: "/static/assets/skins/bald_body.png",
-    frontWing: "/static/assets/skins/front_wing.png",  
-    backWing:  "/static/assets/skins/back_wing.png"     
+    body: "static/assets/skins/bald_body.png",
+    frontWing: "static/assets/skins/front_wing.png",  
+    backWing:  "static/assets/skins/back_wing.png"     
   },
   "24k": {
     name: "24 Karat Sniffy",
-    body: "/static/assets/skins/24k_body.png",
-    frontWing: "/static/assets/skins/24k_front_wing.png",
-    backWing:  "/static/assets/skins/24k_back_wing.png"
+    body: "static/assets/skins/24k_body.png",
+    frontWing: "static/assets/skins/24k_front_wing.png",
+    backWing:  "static/assets/skins/24k_back_wing.png"
   },
   "Sniffyffy": {
     name: "Sniffyffy",
-    body: "/static/assets/skins/sniffyffy_body.png",
-    frontWing: "/static/assets/skins/sniffyffy_front_wing.png",
-    backWing:  "/static/assets/skins/sniffyffy_back_wing.png"
+    body: "static/assets/skins/sniffyffy_body.png",
+    frontWing: "static/assets/skins/sniffyffy_front_wing.png",
+    backWing:  "static/assets/skins/sniffyffy_back_wing.png"
   },
   "Cute": {
     name: "Small and Cute Sniffy",
-    body: "/static/assets/skins/cute_body.png",
-    frontWing: "/static/assets/skins/cute_front_wing.png",
-    backWing:  "/static/assets/skins/cute_back_wing.png"
+    body: "static/assets/skins/cute_body.png",
+    frontWing: "static/assets/skins/cute_front_wing.png",
+    backWing:  "static/assets/skins/cute_back_wing.png"
   },
   "Impostor": {
     name: "Impostor Sniffy",
-    body: "/static/assets/skins/impostor_body.png",
-    frontWing: "/static/assets/skins/impostor_front_wing.png",
-    backWing:  "/static/assets/skins/impostor_back_wing.png"
+    body: "static/assets/skins/impostor_body.png",
+    frontWing: "static/assets/skins/impostor_front_wing.png",
+    backWing:  "static/assets/skins/impostor_back_wing.png"
   },
     "Princess": {
     name: "Princess Sniffy",
-    body: "/static/assets/skins/princess_body.png",
-    frontWing: "/static/assets/skins/cute_front_wing.png",
-    backWing:  "/static/assets/skins/cute_back_wing.png"
+    body: "static/assets/skins/princess_body.png",
+    frontWing: "static/assets/skins/cute_front_wing.png",
+    backWing:  "static/assets/skins/cute_back_wing.png"
   },
     "Swiffy": {
     name: "Taylor Sniffy",
-    body: "/static/assets/skins/swiffy_body.png",
-    frontWing: "/static/assets/skins/cute_front_wing.png",
-    backWing:  "/static/assets/skins/cute_back_wing.png"
+    body: "static/assets/skins/swiffy_body.png",
+    frontWing: "static/assets/skins/cute_front_wing.png",
+    backWing:  "static/assets/skins/cute_back_wing.png"
   },
   "Mustang": {
     name: "Mustang Sniffy",
-    body: "/static/assets/skins/mustang_body.png",
-    frontWing: "/static/assets/skins/mustang_front_wing.png",
-    backWing:  "/static/assets/skins/mustang_back_wing.png"
+    body: "static/assets/skins/mustang_body.png",
+    frontWing: "static/assets/skins/mustang_front_wing.png",
+    backWing:  "static/assets/skins/mustang_back_wing.png"
   },
   "Canada": {
     name: "Team Canada Sniffy",
-    body: "/static/assets/skins/canada_body.png",
-    frontWing: "/static/assets/skins/canada_front_wing.png",
-    backWing:  "/static/assets/skins/canada_back_wing.png"
+    body: "static/assets/skins/canada_body.png",
+    frontWing: "static/assets/skins/canada_front_wing.png",
+    backWing:  "static/assets/skins/canada_back_wing.png"
   },
   "Spooky": {
     name: "Spooky Sniffy",
-    body: "/static/assets/skins/spooky_body.png",
-    frontWing: "/static/assets/skins/impostor_front_wing.png",
-    backWing:  "/static/assets/skins/impostor_back_wing.png"
+    body: "static/assets/skins/spooky_body.png",
+    frontWing: "static/assets/skins/impostor_front_wing.png",
+    backWing:  "static/assets/skins/impostor_back_wing.png"
   },
   "Retro": {
     name: "Steamboat Sniffy",
-    body: "/static/assets/skins/retro_body.png",
-    frontWing: "/static/assets/skins/sniffyffy_front_wing.png",
-    backWing:  "/static/assets/skins/sniffyffy_back_wing.png"
+    body: "static/assets/skins/retro_body.png",
+    frontWing: "static/assets/skins/sniffyffy_front_wing.png",
+    backWing:  "static/assets/skins/sniffyffy_back_wing.png"
   },
   "Hello": {
     name: "Hello Sniffy",
-    body: "/static/assets/skins/hello_body.png",
-    frontWing: "/static/assets/skins/sniffyffy_front_wing.png",
-    backWing:  "/static/assets/skins/sniffyffy_back_wing.png"
+    body: "static/assets/skins/hello_body.png",
+    frontWing: "static/assets/skins/sniffyffy_front_wing.png",
+    backWing:  "static/assets/skins/sniffyffy_back_wing.png"
   }
 };
 
@@ -1036,7 +1036,7 @@ function endGame() {
     bestScore = score;
     localStorage.setItem('bestScore', bestScore);
 
-    fetch("/submit_score", {
+    fetch("submit_score", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

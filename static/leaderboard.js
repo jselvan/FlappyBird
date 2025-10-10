@@ -1,6 +1,6 @@
 // Fetch and display leaderboard
 async function loadLeaderboard(section = "") {
-  let url = "/api/leaderboard";
+  let url = "api/leaderboard";
   if (section.trim() !== "") {
     url += "?section=" + encodeURIComponent(section.trim());
   }

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Leaderboard</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="{{url_for('static', filename='style.css')}}"/>
   </head>
   <body>
     <div id="leaderboard">
@@ -19,6 +19,6 @@
       <ol id="leaders"></ol>
     </div>
 
-    <script src="/static/leaderboard.js"></script>
+    <script src="{{url_for('static', filename='leaderboard.js')}}"></script>
   </body>
 </html>
