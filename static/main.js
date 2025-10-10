@@ -885,6 +885,9 @@ function update(dt) {
         const gap = p.bottom - p.top;
         let distance = Math.round(scale_mult * Math.abs(middleOfGap - bird.y) / (gap / 2) / (gap / MAX_GAP));
         
+        // Ensure minimum 1 point for passing any pipe
+        distance = Math.max(1, distance);
+        
         // Triple points for golden pipes
         if (p.golden) {
           distance *= 3;
