@@ -54,13 +54,15 @@
     <div id="game-container" style="position:relative; width: fit-content; margin:auto;">
       <!-- LOGIN OVERLAY: appears on top of the canvas until player supplies name/section -->
       <div id="login-overlay" aria-live="polite">
-        <h2 style="margin:0 0 6px 0;">Welcome — enter your info</h2>
+        <!-- Image on top -->
+        <img src="/static/assets/flappysniffy.png" alt="Flappy Sniffy" style="width:200px; margin-bottom:16px; display:block; margin-left:auto; margin-right:auto;" />
+        <h2 style="margin:0 0 6px 0;">Welcome to Flappy Sniffy!</h2>
         <input id="player-name" placeholder="Your name" type="text" autocomplete="name" />
-        <input id="player-section" placeholder="Your section (e.g. A)" type="text" autocomplete="off" />
+        <input id="player-section" placeholder="Your section number" type="text" autocomplete="off" />
         <div style="display:flex; gap:12px; align-items:center; justify-content:center;">
           <button id="login-btn" type="button">Start</button>
         </div>
-        <small style="opacity:0.85;">Your name & section will be stored locally and used for leaderboard submissions.</small>
+        <small style="opacity:0.85;">Your name & section will be used for leaderboard submissions.</small>
       </div>
 
       <!-- Game canvas -->
