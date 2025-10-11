@@ -217,7 +217,7 @@ const BIRD_HALF = BIRD_SIZE / 2;
 const TOP_PADDING = 24;    // pixels to ignore above
 const BOTTOM_PADDING = 16;  // pixels to ignore below
 const RIGHT_PADDING = 24;  // pixels to ignore side
-const LEFT_PADDING = 48;  // pixels to ignore side
+const LEFT_PADDING = 44;  // pixels to ignore side
 
 const scale_mult = 10; // score multiplier for distance from center of gap
 const MIN_GAP = BIRD_SIZE*1.7; // minimum gap size
