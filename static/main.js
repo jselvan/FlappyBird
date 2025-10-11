@@ -909,6 +909,7 @@ function showLootBox(onComplete, message = '') {
   msgDiv.style.fontSize = '18px';
   msgDiv.style.textAlign = 'center';
   msgDiv.style.minHeight = '24px';
+  msgDiv.style.whiteSpace = 'nowrap'; // prevent text wrapping
   msgDiv.innerText = message;
 
   // Box itself (scaled to SKIN_PREVIEW_SIZE)
