@@ -740,6 +740,7 @@ function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null,
     progressBar.style.width = "100%";
     progressBar.style.background = "gold";
     progressLabel.innerText = "COLLECTION COMPLETE!";
+    progressLabel.style.color = "gold"; // Make the text gold too
     if (onComplete) onComplete();
     return;
   }
