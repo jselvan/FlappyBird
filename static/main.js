@@ -197,7 +197,7 @@ function showWelcomeScreen() {
       <button id="start-game-btn" type="button" style="font-size:18px; padding:12px 24px;">Start Game</button>
       <button id="logout-btn" type="button" style="font-size:14px; padding:8px 16px; background:#ff6b6b; border:none; color:white; border-radius:6px; cursor:pointer;">Log Out</button>
     </div>
-    <small style="opacity:0.7; margin-top:8px; text-align:center; color:#ff6b6b;">⚠️ Logging out will delete all your progress, scores, and unlocked skins</small>
+    <small style="opacity:0.7; margin-top:8px; text-align:center; color:#ff6b6b;">⚠️ Logging out will reset unlocked skins</small>
   `;
   
   document.getElementById("start-game-btn").addEventListener("click", () => {
