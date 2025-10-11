@@ -215,8 +215,9 @@ const RETURN_SPEED = 0.08; // how quickly angle returns to rest
 const BIRD_SIZE = 72;
 const BIRD_HALF = BIRD_SIZE / 2;
 const TOP_PADDING = 24;    // pixels to ignore above
-const BOTTOM_PADDING = 12;  // pixels to ignore below
-const SIDE_PADDING = 16;  // pixels to ignore side
+const BOTTOM_PADDING = 16;  // pixels to ignore below
+const RIGHT_PADDING = 24;  // pixels to ignore side
+const LEFT_PADDING = 48;  // pixels to ignore side
 
 const scale_mult = 10; // score multiplier for distance from center of gap
 const MIN_GAP = BIRD_SIZE*1.7; // minimum gap size
@@ -1251,8 +1252,10 @@ function update(dt) {
 
   // --- Collision detection + scoring ---
   for (let p of pipes) {
-    if (bird.x + BIRD_HALF - SIDE_PADDING > p.x &&
-        bird.x - BIRD_HALF + SIDE_PADDING < p.x + PIPE_WIDTH) {
+    if (
+      bird.x + BIRD_HALF - RIGHT_PADDING > p.x &&
+      bird.x - BIRD_HALF + LEFT_PADDING < p.x + PIPE_WIDTH
+    ) {
 
       if (bird.y - BIRD_HALF + TOP_PADDING < p.top ||
           bird.y + BIRD_HALF - BOTTOM_PADDING > p.bottom) {
