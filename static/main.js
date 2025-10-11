@@ -1753,7 +1753,7 @@ function showAllSkinsUnlockedMessage(onComplete) {
     completionMsg.style.top = '40%';
     completionMsg.style.left = '50%';
     completionMsg.style.transform = 'translate(-50%, -50%)';
-    completionMsg.style.fontSize = '36px';
+    completionMsg.style.fontSize = '30px';
     completionMsg.style.fontWeight = 'bold';
     completionMsg.style.textAlign = 'center';
     completionMsg.style.textShadow = '2px 2px 4px rgba(0,0,0,0.8)';
