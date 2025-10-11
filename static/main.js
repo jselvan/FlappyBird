@@ -31,6 +31,108 @@ updateSkinMenuArrows();
 let currentSkin = localStorage.getItem('currentSkin') || 'Classic';
 let currentSkinIndex = unlockedSkins.indexOf(currentSkin) || 0;
 
+// --- AUDIO SYSTEM ---
+const audio = {
+  music: new Audio('/static/assets/audio/music.wav'),
+  flap: new Audio('/static/assets/audio/flap.wav'),
+  death: new Audio('/static/assets/audio/death.wav'),
+  sparkle: new Audio('/static/assets/audio/sparkle.wav')
+};
+
+// Configure audio properties
+audio.music.loop = true; // Music should loop continuously
+audio.music.volume = 0.05; // Lower volume for background music
+audio.flap.volume = 0.05;
+audio.death.volume = 0.4;
+audio.sparkle.volume = 0.4;
+
+// Mute state
+let audioMuted = localStorage.getItem('audioMuted') === 'true' || false;
+
+// Audio management functions
+function playSound(soundName) {
+  if (audioMuted) return; // Skip if muted
+  const sound = audio[soundName];
+  if (sound) {
+    // Ensure sound doesn't loop for single plays
+    sound.loop = false;
+    // For flap sound, reset to beginning if already playing to avoid stacking
+    if (soundName === 'flap') {
+      sound.currentTime = 0;
+    }
+    sound.play().catch(err => console.log(`Audio play failed for ${soundName}:`, err));
+  }
+}
+
+function loopSound(soundName) {
+  if (audioMuted) return; // Skip if muted
+  const sound = audio[soundName];
+  if (sound) {
+    sound.loop = true;
+    sound.play().catch(err => console.log(`Audio loop failed for ${soundName}:`, err));
+  }
+}
+
+function stopSound(soundName) {
+  const sound = audio[soundName];
+  if (sound) {
+    sound.pause();
+    sound.currentTime = 0;
+  }
+}
+
+// Mute/unmute functionality
+function toggleMute() {
+  audioMuted = !audioMuted;
+  localStorage.setItem('audioMuted', audioMuted.toString());
+  
+  if (audioMuted) {
+    // Stop all currently playing sounds when muting
+    Object.keys(audio).forEach(soundName => {
+      stopSound(soundName);
+    });
+  } else {
+    // Resume background music when unmuting
+    audio.music.play().catch(err => console.log('Music resume failed:', err));
+  }
+  
+  updateMuteButton();
+}
+
+function updateMuteButton() {
+  const muteBtn = document.getElementById('mute-btn');
+  if (muteBtn) {
+    muteBtn.textContent = audioMuted ? '🔇' : '🔊';
+    muteBtn.title = audioMuted ? 'Unmute sounds' : 'Mute sounds';
+  }
+}
+
+// Start background music when the game loads
+document.addEventListener('DOMContentLoaded', () => {
+  // Set up mute button event listener and initial state
+  const muteBtn = document.getElementById('mute-btn');
+  if (muteBtn) {
+    muteBtn.addEventListener('click', toggleMute);
+    updateMuteButton();
+  }
+  
+  // Try to start music - modern browsers may block autoplay until user interaction
+  if (!audioMuted) {
+    audio.music.play().catch(err => {
+      console.log('Background music blocked by browser - will start on first user interaction');
+    });
+  }
+});
+
+// Ensure music starts on first user interaction if blocked initially
+let musicStarted = false;
+document.addEventListener('click', () => {
+  if (!musicStarted && !audioMuted) {
+    audio.music.play().catch(err => console.log('Music start failed:', err));
+    musicStarted = true;
+  }
+}, { once: true });
+
 // --- reset function ---
 function resetPlayerData() {
   // Clear relevant localStorage items
@@ -638,6 +740,9 @@ function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null,
     let lastTime = animationStart;
     let currentTotal = prevTotal;
     let nextCumulativeIndex = 0;
+    
+    // Start looping sparkle sound for progress animation
+    loopSound('sparkle');
 
     function frame(now) {
       const dt = now - lastTime;
@@ -662,10 +767,12 @@ function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null,
           currentTotal >= cumulativeMilestones[nextCumulativeIndex]) {
         const milestoneValue = cumulativeMilestones[nextCumulativeIndex];
         spawnProgressBurstAtBar();
+        stopSound('sparkle'); // Stop sparkle sound during loot box
         triggerBarFlash(() => {
           handleMilestoneMessage(`Reached ${milestoneValue} total points!`, () => {
             nextCumulativeIndex++;
             lastTime = performance.now();
+            loopSound('sparkle'); // Resume sparkle sound after loot box
             requestAnimationFrame(frame);
           });
         });
@@ -675,6 +782,7 @@ function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null,
       if (currentTotal < newTotal) {
         requestAnimationFrame(frame);
       } else {
+        stopSound('sparkle'); // Stop sparkle sound when animation ends
         progressAnimating = false;
         if (onComplete) onComplete(); // <-- call after animation finishes
       }
@@ -695,6 +803,16 @@ function showProgressUI() {
 function hideProgressUI() {
   const wrapper = document.getElementById('progress-wrapper');
   if (wrapper) wrapper.style.display = 'none';
+}
+
+function showLeaderboardButton() {
+  const leaderboardBtn = document.getElementById('leaderboard-btn');
+  if (leaderboardBtn) leaderboardBtn.style.display = 'block';
+}
+
+function hideLeaderboardButton() {
+  const leaderboardBtn = document.getElementById('leaderboard-btn');
+  if (leaderboardBtn) leaderboardBtn.style.display = 'none';
 }
 
 
@@ -769,6 +887,7 @@ function showLootBox(onComplete, message = '') {
   box.addEventListener('click', () => {
     if (boxClicked) return; // ignore if already clicked
     boxClicked = true;
+    playSound('sparkle'); // Play sparkle sound when loot box is clicked
 
     // Get locked skins
     const lockedSkinKeys = Object.keys(ALL_SKINS).filter(key => !unlockedSkins.includes(key));
@@ -836,6 +955,7 @@ function reset() {
   running = true;
 
   hideProgressUI(); // <--- hide bar while running
+  hideLeaderboardButton(); // hide leaderboard button while playing
 
   // start game loop
   lastTime = 0;
@@ -1115,6 +1235,7 @@ function update(dt) {
         
         // Sparkles based on raw distance, not final score
         if (rawDistanceMultiplier >= 5) {
+          playSound('sparkle'); // Play sparkle sound for close passes
           if (p.golden) {
             // More sparkles for golden pipes
             spawnSparkle(bird.x, bird.y);
@@ -1378,10 +1499,12 @@ function loop(timestamp) {
 function flap() {
   bird.vy = -5; // existing lift
   wingVelocity = -0.5; // boost wing rotation
+  playSound('flap'); // Play flap sound effect
 }
 
 function endGame() {
   running = false;
+  playSound('death'); // Play death sound effect
   const prevTotal = cumulativeScore;
   cumulativeScore += score;
   localStorage.setItem('cumulativeScore', cumulativeScore);
@@ -1409,6 +1532,7 @@ function endGame() {
   }
 
   showProgressUI(); // <--- show bar again
+  showLeaderboardButton(); // show leaderboard button when game ends
   updateProgressDisplay(true, score, prevTotal, () => {
     // Only show menu after loot box / milestone animations finish
     showMenu();
