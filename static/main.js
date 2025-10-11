@@ -33,10 +33,10 @@ let currentSkinIndex = unlockedSkins.indexOf(currentSkin) || 0;
 
 // --- AUDIO SYSTEM ---
 const audio = {
-  music: new Audio('/static/assets/audio/music.wav'),
-  flap: new Audio('/static/assets/audio/flap.wav'),
-  death: new Audio('/static/assets/audio/death.wav'),
-  sparkle: new Audio('/static/assets/audio/sparkle.wav')
+  music: new Audio('static/assets/audio/music.wav'),
+  flap: new Audio('static/assets/audio/flap.wav'),
+  death: new Audio('static/assets/audio/death.wav'),
+  sparkle: new Audio('static/assets/audio/sparkle.wav')
 };
 
 // Configure audio properties

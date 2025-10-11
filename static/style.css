@@ -20,7 +20,7 @@ body, html {
 }
 
 #ui { position: absolute; top: 6px; left: 6px; }
-#score { background: rgba(102, 216, 224, 0.8); padding:6px 10px; border-radius:6px; }
+#score { background: rgba(0, 170, 255, 0.8); padding:6px 10px; border-radius:6px; }
 canvas { border: 2px solid #333; background: #7a7a7a }
 
 /* --- Leaderboard page styles --- */
