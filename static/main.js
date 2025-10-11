@@ -1189,7 +1189,12 @@ function getGapPosition(minY, maxY, distributionType) {
 }
 
 function spawnPipe() {
-  const gap = Math.random() * GAP_JITTER + MIN_GAP;
+  // Calculate progressive difficulty: reduce gap jitter over time
+  const difficultyLevel = Math.floor(pipesPassedCount / DISTANCE_MULT);
+  const jitterReduction = difficultyLevel * (BIRD_SIZE / 10); // 1/10 BIRD_SIZE per DISTANCE_MULT
+  const currentGapJitter = Math.max(0, GAP_JITTER - jitterReduction); // cap at 0
+  
+  const gap = Math.random() * currentGapJitter + MIN_GAP;
   
   // Check if we need to pick a new distribution (every DISTANCE_MULT pipes)
   if (pipesSpawnedCount % DISTANCE_MULT === 0) {
