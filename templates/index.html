@@ -52,17 +52,9 @@
   <body>
 
     <div id="game-container" style="position:relative; width: fit-content; margin:auto;">
-      <!-- LOGIN OVERLAY: appears on top of the canvas until player supplies name/section -->
+      <!-- LOGIN OVERLAY: shows login form or welcome screen -->
       <div id="login-overlay" aria-live="polite">
-        <!-- Image on top -->
-        <img src="{{ url_for('static', filename='assets/flappysniffy.png') }}" alt="Flappy Sniffy" style="width:200px; margin-bottom:16px; display:block; margin-left:auto; margin-right:auto;" />
-        <h2 style="margin:0 0 6px 0;">Welcome to Flappy Sniffy!</h2>
-        <input id="player-name" placeholder="Your name" type="text" autocomplete="name" />
-        <input id="player-section" placeholder="Your section number" type="text" autocomplete="off" />
-        <div style="display:flex; gap:12px; align-items:center; justify-content:center;">
-          <button id="login-btn" type="button">Start</button>
-        </div>
-        <small style="opacity:0.85;">Your name & section will be used for leaderboard submissions.</small>
+        <!-- Content will be dynamically populated by JavaScript -->
       </div>
 
       <!-- Game canvas -->

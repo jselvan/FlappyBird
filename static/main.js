@@ -169,28 +169,75 @@ function resetPlayerData() {
   updateSkinDisplay(); // make sure this redraws the skin to 'Classic'
 }
 
-// --- login button ---
-document.getElementById("login-btn").addEventListener("click", () => {
+// --- login system ---
+function showLoginForm() {
+  const overlay = document.getElementById("login-overlay");
+  overlay.innerHTML = `
+    <img src="static/assets/flappysniffy.png" alt="Flappy Sniffy" style="width:200px; margin-bottom:16px; display:block; margin-left:auto; margin-right:auto;" />
+    <h2 style="margin:0 0 6px 0;">Welcome to Flappy Sniffy!</h2>
+    <input id="player-name" placeholder="Your name" type="text" autocomplete="name" />
+    <input id="player-section" placeholder="Your section number" type="text" autocomplete="off" />
+    <div style="display:flex; gap:12px; align-items:center; justify-content:center;">
+      <button id="login-btn" type="button">Start</button>
+    </div>
+    <small style="opacity:0.85;">Your name & section will be used for leaderboard submissions.</small>
+  `;
+  
+  document.getElementById("login-btn").addEventListener("click", handleLogin);
+  overlay.style.display = "flex";
+}
+
+function showWelcomeScreen() {
+  const overlay = document.getElementById("login-overlay");
+  overlay.innerHTML = `
+    <img src="static/assets/flappysniffy.png" alt="Flappy Sniffy" style="width:200px; margin-bottom:16px; display:block; margin-left:auto; margin-right:auto;" />
+    <h2 style="margin:0 0 6px 0;">Welcome, ${playerName}!</h2>
+    <p style="margin:0 0 20px 0; opacity:0.9;">Section: ${playerSection}</p>
+    <div style="display:flex; gap:12px; align-items:center; justify-content:center; flex-direction:column;">
+      <button id="start-game-btn" type="button" style="font-size:18px; padding:12px 24px;">Start Game</button>
+      <button id="logout-btn" type="button" style="font-size:14px; padding:8px 16px; background:#ff6b6b; border:none; color:white; border-radius:6px; cursor:pointer;">Log Out</button>
+    </div>
+  `;
+  
+  document.getElementById("start-game-btn").addEventListener("click", () => {
+    overlay.style.display = "none";
+  });
+  
+  document.getElementById("logout-btn").addEventListener("click", () => {
+    resetPlayerData();
+    showLoginForm();
+  });
+  
+  overlay.style.display = "flex";
+}
+
+function handleLogin() {
   const inputName = document.getElementById("player-name").value.trim();
   const inputSection = document.getElementById("player-section").value.trim();
 
   if (!inputName || !inputSection) return;
 
-  const storedName = localStorage.getItem("playerName");
-  const storedSection = localStorage.getItem("playerSection");
-
-  // If player changed, reset all relevant data
-  if (storedName && storedSection && (storedName !== inputName || storedSection !== inputSection)) {
-    resetPlayerData();
-  }
-
-  // Save new player info
+  // Save player info
   localStorage.setItem("playerName", inputName);
   localStorage.setItem("playerSection", inputSection);
   playerName = inputName;
   playerSection = inputSection;
 
   document.getElementById("login-overlay").style.display = "none";
+}
+
+// Initialize login system on page load
+document.addEventListener('DOMContentLoaded', () => {
+  const storedName = localStorage.getItem("playerName");
+  const storedSection = localStorage.getItem("playerSection");
+  
+  if (storedName && storedSection) {
+    playerName = storedName;
+    playerSection = storedSection;
+    showWelcomeScreen();
+  } else {
+    showLoginForm();
+  }
 });
 // Game Info
 
