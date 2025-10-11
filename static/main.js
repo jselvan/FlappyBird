@@ -1207,7 +1207,20 @@ function spawnPipe() {
   const top = gapCenter - gap / 2;
   
   const isGolden = Math.random() < GOLDEN_PIPE_CHANCE;
-  pipes.push({ x: canvas.width, top, bottom: top + gap, passed: false, golden: isGolden });
+  
+  // Store the glow color that was active when this pipe was spawned
+  const currentMultiplier = 1 + Math.floor(pipesPassedCount / DISTANCE_MULT);
+  const colorIndex = (currentMultiplier - 1) % SCORE_MULT_COLORS.length;
+  const spawnGlowColor = SCORE_MULT_COLORS[colorIndex];
+  
+  pipes.push({ 
+    x: canvas.width, 
+    top, 
+    bottom: top + gap, 
+    passed: false, 
+    golden: isGolden,
+    glowColor: spawnGlowColor // store the glow color from when it was spawned
+  });
   shockTimer = 25; // ~15 frames of glow
   
   pipesSpawnedCount++; // increment spawned pipe counter
@@ -1473,10 +1486,8 @@ function draw() {
     ctx.fillStyle = barGradient;
 
   if (shockTimer > 0 || barsGlowing) {
-    // Get current base score multiplier and corresponding color
-    const currentMultiplier = 1 + Math.floor(pipesPassedCount / DISTANCE_MULT);
-    const colorIndex = (currentMultiplier - 1) % SCORE_MULT_COLORS.length;
-    ctx.shadowColor = SCORE_MULT_COLORS[colorIndex];
+    // Use the glow color that was stored when this pipe was spawned
+    ctx.shadowColor = p.glowColor;
     ctx.shadowBlur = 15;
   } else {
     ctx.shadowBlur = 0;
