@@ -355,6 +355,42 @@ const ALL_SKINS = {
     body: "static/assets/skins/hello_body.png",
     frontWing: "static/assets/skins/sniffyffy_front_wing.png",
     backWing:  "static/assets/skins/sniffyffy_back_wing.png"
+  },
+    "OG": {
+    name: "OG Sniffy",
+    body: "static/assets/skins/og_body.png",
+    frontWing: "static/assets/skins/sniffyffy_front_wing.png",
+    backWing:  "static/assets/skins/sniffyffy_back_wing.png"
+  },
+    "Strawhat": {
+    name: "Strawhat Sniffy",
+    body: "static/assets/skins/strawhat_body.png",
+    frontWing: "static/assets/skins/empty.png", // no front wing for this skin
+    backWing:  "static/assets/skins/strawhat_back_wing.png"
+  },
+    "Hedgehog": {
+    name: "Sniffy the Hedgehog",
+    body: "static/assets/skins/hedgehog_body.png",
+    frontWing: "static/assets/skins/sniffyffy_front_wing.png",
+    backWing:  "static/assets/skins/sniffyffy_back_wing.png"
+  },
+    "Sniffychu": {
+    name: "Sniffychu",
+    body: "static/assets/skins/sniffychu_body.png",
+    frontWing: "static/assets/skins/sniffyffy_front_wing.png",
+    backWing:  "static/assets/skins/sniffyffy_back_wing.png"
+  },
+    "Superstar": {
+    name: "Superstar Sniffy",
+    body: "static/assets/skins/superstar_body.png",
+    frontWing: "static/assets/skins/front_wing.png",
+    backWing:  "static/assets/skins/back_wing.png"
+  },
+    "Astronaut": {
+    name: "Astronaut Sniffy",
+    body: "static/assets/skins/astronaut_body.png",
+    frontWing: "static/assets/skins/empty.png",
+    backWing:  "static/assets/skins/empty.png"
   }
 };
 
