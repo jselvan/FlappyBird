@@ -149,6 +149,7 @@ function resetPlayerData() {
   localStorage.removeItem("unlockedSkins");
   localStorage.removeItem("cumulativeScore");
   localStorage.removeItem("reachedRunMilestones");
+  localStorage.removeItem("allSkinsUnlockedShown");
 
   // Reset JS variables
   playerName = null;
@@ -156,6 +157,7 @@ function resetPlayerData() {
   bestScore = 0;
   cumulativeScore = 0;
   reachedRunMilestones = [];
+  allSkinsUnlockedShown = false;
 
   // Reset skins
   unlockedSkins = ["Classic"];
@@ -264,12 +266,13 @@ let currentDistribution = DISTRIBUTION_TYPES.UNIFORM; // track active distributi
 let pipesSpawnedCount = 0; // track how many pipes have been spawned
 
 // --- MILESTONES CONFIG ---
-const RUN_SCORE_MILESTONES = [20, 40, 80, 160, 320, 640, 1280, 2560];   // first-time single-run milestones
+const RUN_SCORE_MILESTONES = [50, 100, 200, 400, 800, 900, 1000, 2000, 4000, 8000];   // first-time single-run milestones
 const CUMULATIVE_SCORE_STEP = 100;           // every 100 cumulative points
 
 // --- SKIN SYSTEM ---
 // Define available skins (add more as needed)
 let lootBoxActive = false;
+let allSkinsUnlockedShown = localStorage.getItem('allSkinsUnlockedShown') === 'true' || false;
 const SKIN_PREVIEW_SIZE = 144; // size of skin preview in menu
 
 const ALL_SKINS = {
@@ -404,6 +407,12 @@ const ALL_SKINS = {
     body: "static/assets/skins/tanuki_body.png",
     frontWing: "static/assets/skins/empty.png",
     backWing:  "static/assets/skins/tanuki_back_wing.png"
+  },
+  "Hollow": {
+    name: "Hollow Sniffy",
+    body: "static/assets/skins/hollow_body.png",
+    frontWing: "static/assets/skins/empty.png",
+    backWing:  "static/assets/skins/hollow_back_wing.png"
   }
 };
 
@@ -726,6 +735,15 @@ function getPreviousMilestone(score) {
 function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null, onComplete = null) {
   if (!progressBar || !progressLabel) return;
 
+  // If all skins are unlocked, show golden completed bar without animation
+  if (allSkinsUnlockedShown) {
+    progressBar.style.width = "100%";
+    progressBar.style.background = "gold";
+    progressLabel.innerText = "COLLECTION COMPLETE!";
+    if (onComplete) onComplete();
+    return;
+  }
+
   const newTotal = cumulativeScore;
   if (prevTotal === null) prevTotal = newTotal - runScore;
 
@@ -967,21 +985,40 @@ function showLootBox(onComplete, message = '') {
       img.style.width = SKIN_PREVIEW_SIZE * 0.9 + 'px';
       img.style.height = SKIN_PREVIEW_SIZE * 0.9 + 'px';
       box.appendChild(img);
+      
+      // Check if this was the last skin to unlock
+      const allSkinKeys = Object.keys(ALL_SKINS);
+      const justUnlockedAll = unlockedSkins.length === allSkinKeys.length && !allSkinsUnlockedShown;
+      
+      // sparkles
+      for (let i = 0; i < 15; i++) spawnTinyProgressParticle();
+
+      setTimeout(() => {
+        boxWrapper.remove();
+        lootBoxActive = false; // set inactive after box disappears
+        
+        if (justUnlockedAll) {
+          // Show special completion message
+          showAllSkinsUnlockedMessage(onComplete);
+        } else {
+          if (onComplete) onComplete(); // call the callback after delay
+        }
+      }, 1500);
     } else {
       // All skins unlocked: show rat emoji
       msgDiv.innerText = 'All skins unlocked!';
       box.style.background = '#666';
       box.innerText = '🐀';
+      
+      // sparkles
+      for (let i = 0; i < 15; i++) spawnTinyProgressParticle();
+
+      setTimeout(() => {
+        boxWrapper.remove();
+        lootBoxActive = false; // set inactive after box disappears
+        if (onComplete) onComplete(); // call the callback after delay
+      }, 1500);
     }
-
-    // sparkles
-    for (let i = 0; i < 15; i++) spawnTinyProgressParticle();
-
-    setTimeout(() => {
-      boxWrapper.remove();
-      lootBoxActive = false; // set inactive after box disappears
-      if (onComplete) onComplete(); // call the callback after delay
-    }, 1500);
   });
 }
 
@@ -1699,6 +1736,69 @@ function hideCelebrationMessage() {
   const celebMsg = document.getElementById('celebration-message');
   if (celebMsg) {
     celebMsg.style.display = 'none';
+  }
+}
+
+function showAllSkinsUnlockedMessage(onComplete) {
+  // Mark that we've shown this message
+  allSkinsUnlockedShown = true;
+  localStorage.setItem('allSkinsUnlockedShown', 'true');
+  
+  // Create completion message
+  let completionMsg = document.getElementById('completion-message');
+  if (!completionMsg) {
+    completionMsg = document.createElement('div');
+    completionMsg.id = 'completion-message';
+    completionMsg.style.position = 'absolute';
+    completionMsg.style.top = '40%';
+    completionMsg.style.left = '50%';
+    completionMsg.style.transform = 'translate(-50%, -50%)';
+    completionMsg.style.fontSize = '36px';
+    completionMsg.style.fontWeight = 'bold';
+    completionMsg.style.textAlign = 'center';
+    completionMsg.style.textShadow = '2px 2px 4px rgba(0,0,0,0.8)';
+    completionMsg.style.zIndex = '1001';
+    completionMsg.style.pointerEvents = 'none';
+    document.body.appendChild(completionMsg);
+  }
+  
+  completionMsg.textContent = "ALL SKINS UNLOCKED!";
+  completionMsg.style.color = "#FFD700"; // gold color like #1 message
+  completionMsg.style.display = 'block';
+  
+  // Play victory sound for collection completion
+  playSound('victory');
+  
+  let messageShown = false;
+  let minTimeElapsed = false;
+  
+  // Minimum 1 second timer
+  setTimeout(() => {
+    minTimeElapsed = true;
+    if (messageShown) {
+      hideCompletionMessage();
+      if (onComplete) onComplete();
+    }
+  }, 1000);
+  
+  // Click handler
+  function handleClick() {
+    if (minTimeElapsed) {
+      document.removeEventListener('click', handleClick);
+      hideCompletionMessage();
+      if (onComplete) onComplete();
+    } else {
+      messageShown = true;
+    }
+  }
+  
+  document.addEventListener('click', handleClick);
+}
+
+function hideCompletionMessage() {
+  const completionMsg = document.getElementById('completion-message');
+  if (completionMsg) {
+    completionMsg.style.display = 'none';
   }
 }
 
