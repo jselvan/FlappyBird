@@ -391,6 +391,12 @@ const ALL_SKINS = {
     body: "static/assets/skins/astronaut_body.png",
     frontWing: "static/assets/skins/empty.png",
     backWing:  "static/assets/skins/empty.png"
+  },
+  "Tanuki": {
+    name: "Tanuki Sniffy",
+    body: "static/assets/skins/tanuki_body.png",
+    frontWing: "static/assets/skins/empty.png",
+    backWing:  "static/assets/skins/tanuki_back_wing.png"
   }
 };
 
