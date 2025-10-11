@@ -1767,7 +1767,7 @@ function showAllSkinsUnlockedMessage(onComplete) {
   completionMsg.style.display = 'block';
   
   // Play victory sound for collection completion
-  playSound('victory');
+  playSound('leaderboard');
   
   let messageShown = false;
   let minTimeElapsed = false;
