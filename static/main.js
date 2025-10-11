@@ -36,7 +36,10 @@ const audio = {
   music: new Audio('static/assets/audio/music.wav'),
   flap: new Audio('static/assets/audio/flap.wav'),
   death: new Audio('static/assets/audio/death.wav'),
-  sparkle: new Audio('static/assets/audio/sparkle.wav')
+  sparkle: new Audio('static/assets/audio/sparkle.wav'),
+  victory: new Audio('static/assets/audio/victory.wav'),
+  leaderboard: new Audio('static/assets/audio/leaderboard.wav'),
+  grandchampion: new Audio('static/assets/audio/grandchampion.wav')
 };
 
 // Configure audio properties
@@ -45,6 +48,9 @@ audio.music.volume = 0.05; // Lower volume for background music
 audio.flap.volume = 0.05;
 audio.death.volume = 0.4;
 audio.sparkle.volume = 0.4;
+audio.victory.volume = 0.6;
+audio.leaderboard.volume = 0.6;
+audio.grandchampion.volume = 0.8;
 
 // Mute state
 let audioMuted = localStorage.getItem('audioMuted') === 'true' || false;
@@ -1568,17 +1574,112 @@ function endGame() {
         name: playerName,
         section: playerSection,
         score: score,
-        skin: currentSkin // submit the currently selected skin
+        skin: currentSkin
       })
-    }).catch(err => console.error("Error submitting score:", err));
+    }).then(response => response.json())
+      .then(data => {
+        // Start celebration system for personal best
+        startCelebration(data);
+      })
+      .catch(err => {
+        console.error("Error submitting score:", err);
+        // Continue normally if submission fails
+        continueEndGame(prevTotal);
+      });
+  } else {
+    // No personal best, continue normally
+    continueEndGame(prevTotal);
   }
+}
 
-  showProgressUI(); // <--- show bar again
-  showLeaderboardButton(); // show leaderboard button when game ends
+function continueEndGame(prevTotal) {
+  showProgressUI();
+  showLeaderboardButton();
   updateProgressDisplay(true, score, prevTotal, () => {
-    // Only show menu after loot box / milestone animations finish
     showMenu();
   });
+}
+
+function startCelebration(scoreData) {
+  // Hide UI elements during celebration
+  hideProgressUI();
+  hideLeaderboardButton();
+  
+  // Show personal best message and play victory sound
+  showCelebrationMessage("New personal best!", "#00aaff");
+  playSound('victory');
+  
+  // Wait for victory sound duration, then check for rankings
+  setTimeout(() => {
+    if (scoreData.is_overall_top5 || scoreData.is_section_top5) {
+      // Additional celebration for rankings
+      let rankingMessage = "";
+      let celebrationSound = "";
+      let celebrationDuration = 2000; // default 2 seconds
+      
+      if (scoreData.is_overall_best) {
+        rankingMessage = "YOU ARE #1!";
+        celebrationSound = 'grandchampion';
+        celebrationDuration = 10000; // 10 seconds for grand champion
+      } else if (scoreData.is_overall_top5) {
+        rankingMessage = "Top 5 overall!";
+        celebrationSound = 'leaderboard';
+        celebrationDuration = 2000; // 2 seconds
+      } else {
+        rankingMessage = "Top 5 in your section!";
+        celebrationSound = 'leaderboard';
+        celebrationDuration = 2000; // 2 seconds
+      }
+      
+      showCelebrationMessage(rankingMessage, "#FFD700");
+      playSound(celebrationSound);
+      
+      // Wait for celebration duration, then continue
+      setTimeout(() => {
+        endCelebration();
+      }, celebrationDuration);
+    } else {
+      // Just personal best, continue after victory sound
+      endCelebration();
+    }
+  }, 2000); // 2 second minimum for personal best celebration
+}
+
+function endCelebration() {
+  hideCelebrationMessage();
+  const prevTotal = cumulativeScore - score; // Recalculate since we already added it
+  continueEndGame(prevTotal);
+}
+
+function showCelebrationMessage(text, color) {
+  // Create or update celebration message
+  let celebMsg = document.getElementById('celebration-message');
+  if (!celebMsg) {
+    celebMsg = document.createElement('div');
+    celebMsg.id = 'celebration-message';
+    celebMsg.style.position = 'absolute';
+    celebMsg.style.top = '40%';
+    celebMsg.style.left = '50%';
+    celebMsg.style.transform = 'translate(-50%, -50%)';
+    celebMsg.style.fontSize = '32px';
+    celebMsg.style.fontWeight = 'bold';
+    celebMsg.style.textAlign = 'center';
+    celebMsg.style.textShadow = '2px 2px 4px rgba(0,0,0,0.8)';
+    celebMsg.style.zIndex = '1000';
+    celebMsg.style.pointerEvents = 'none';
+    document.body.appendChild(celebMsg);
+  }
+  
+  celebMsg.textContent = text;
+  celebMsg.style.color = color;
+  celebMsg.style.display = 'block';
+}
+
+function hideCelebrationMessage() {
+  const celebMsg = document.getElementById('celebration-message');
+  if (celebMsg) {
+    celebMsg.style.display = 'none';
+  }
 }
 
 document.querySelector('#skin-menu #start').addEventListener('click', () => {

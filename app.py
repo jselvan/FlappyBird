@@ -75,7 +75,25 @@ def submit_score():
     s = Score(name=name, section=section, score=score_val, skin=skin)
     db.session.add(s)
     db.session.commit()
-    return jsonify(s.to_dict()), 201
+    
+    # Check rankings
+    # Overall top 5 check
+    overall_top5 = Score.query.order_by(Score.score.desc()).limit(5).all()
+    is_overall_top5 = any(score.id == s.id for score in overall_top5)
+    
+    # Check if this is the new overall best score
+    is_overall_best = len(overall_top5) > 0 and overall_top5[0].id == s.id
+    
+    # Section top 5 check
+    section_top5 = Score.query.filter_by(section=section).order_by(Score.score.desc()).limit(5).all()
+    is_section_top5 = any(score.id == s.id for score in section_top5)
+    
+    response_data = s.to_dict()
+    response_data['is_overall_top5'] = is_overall_top5
+    response_data['is_overall_best'] = is_overall_best
+    response_data['is_section_top5'] = is_section_top5
+    
+    return jsonify(response_data), 201
 
 
 if __name__ == '__main__':
