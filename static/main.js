@@ -1184,6 +1184,13 @@ function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null,
     loopSound('sparkle');
 
     function frame(now) {
+      // Stop animation if progressAnimating was set to false externally
+      if (!progressAnimating) {
+        stopSound('sparkle');
+        if (onComplete) onComplete(); // Call the callback to continue the game flow
+        return;
+      }
+      
       const dt = now - lastTime;
       lastTime = now;
 
@@ -1440,6 +1447,10 @@ function showLootBox(onComplete, message = '', secretSkinKey = null, secretSkinD
 
 function reset() {
   if (progressAnimating) return; // block new game until animation finishes
+  
+  // Reset milestone processing flag (in case user reset their data)
+  milestoneProcessingActive = true;
+  
   bird = { x: BIRD_X, y: canvas.height/2, vy: 0 };
   pipes = [];
   frame = 0;
@@ -1481,7 +1492,14 @@ function reset() {
 // Replace the body later with your modal/lootbox flow; it must call onDone() when finished.
 // For now it uses alert() so behavior is synchronous/blocking (keeps sequencing simple).
 // ---------------------------
+let milestoneProcessingActive = true; // Flag to control milestone processing
+
 handleMilestoneMessage = function(message, onDone) {
+  // Skip milestone messages if collection is complete
+  if (!milestoneProcessingActive) {
+    if (onDone) onDone();
+    return;
+  }
   showLootBox(onDone, message); // pass the message here
 };
 
@@ -2000,7 +2018,7 @@ function draw() {
     if (shockTimer > 0 || barsGlowing) {
       // Use the glow color that was stored when this pipe was spawned
       ctx.shadowColor = p.glowColor;
-      ctx.shadowBlur = 15;
+      ctx.shadowBlur = 25;
     } else {
       ctx.shadowBlur = 0;
     }
@@ -2249,6 +2267,23 @@ function showAllSkinsUnlockedMessage(onComplete) {
   // Mark that we've shown this message
   allSkinsUnlockedShown = true;
   localStorage.setItem('allSkinsUnlockedShown', 'true');
+  
+  // Stop any ongoing progress animation immediately
+  progressAnimating = false;
+  
+  // Stop any queued milestone messages/loot boxes
+  milestoneProcessingActive = false;
+  
+  // Stop sparkle sound if it's playing
+  stopSound('sparkle');
+  
+  // Immediately update progress bar to completed state
+  if (progressBar && progressLabel) {
+    progressBar.style.width = "100%";
+    progressBar.style.background = "gold";
+    progressLabel.innerText = "COLLECTION COMPLETE!";
+    progressLabel.style.color = "gold";
+  }
   
   // Create completion message
   let completionMsg = document.getElementById('completion-message');
