@@ -213,11 +213,35 @@ function showWelcomeScreen() {
   overlay.style.display = "flex";
 }
 
+function validateSection(section) {
+  // Convert "Ta" to "TA"
+  if (section.toLowerCase() === "ta") {
+    return "TA";
+  }
+  
+  // Check if it's "TA" (already uppercase)
+  if (section === "TA") {
+    return "TA";
+  }
+  
+  // Check if it's a number between 10-70 inclusive
+  const num = parseInt(section, 10);
+  if (!isNaN(num) && num >= 10 && num <= 70) {
+    return num.toString();
+  }
+  
+  // If none of the above, return "0"
+  return "0";
+}
+
 function handleLogin() {
   const inputName = document.getElementById("player-name").value.trim();
-  const inputSection = document.getElementById("player-section").value.trim();
+  let inputSection = document.getElementById("player-section").value.trim();
 
   if (!inputName || !inputSection) return;
+
+  // Validate and normalize section number
+  inputSection = validateSection(inputSection);
 
   // Save player info
   localStorage.setItem("playerName", inputName);
@@ -553,22 +577,46 @@ function updateSkinDisplay() {
   }
 }
 
+function animateSkinPreview() {
+  const display = document.getElementById('current-skin-display');
+  if (!display) return;
+  
+  // Create jump animation using CSS transform
+  display.style.transition = 'transform 0.3s ease-out';
+  display.style.transform = 'translateY(-15px)';
+  
+  // Return to original position
+  setTimeout(() => {
+    display.style.transform = 'translateY(0px)';
+  }, 150);
+  
+  // Clean up transition after animation
+  setTimeout(() => {
+    display.style.transition = '';
+  }, 300);
+}
+
 // switch left
 document.getElementById('skin-left').addEventListener('click', () => {
   currentSkinIndex--;
   updateSkinDisplay();
+  playSound('flap'); // Play flap sound on skin switch
+  animateSkinPreview(); // Animate the preview
 });
 
 // switch right
 document.getElementById('skin-right').addEventListener('click', () => {
   currentSkinIndex++;
   updateSkinDisplay();
+  playSound('flap'); // Play flap sound on skin switch
+  animateSkinPreview(); // Animate the preview
 });
 
 function showMenu() {
   const menu = document.getElementById('skin-menu');
   if (menu) menu.style.display = 'block';
   updateSkinDisplay();
+  drawStaticBackground(); // Draw static background when menu is first shown
 }
 
 function hideMenu() {
@@ -992,7 +1040,7 @@ function showLootBox(onComplete, message = '') {
   box.style.alignItems = 'center';
   box.style.justifyContent = 'center';
   box.style.cursor = 'pointer';
-  box.style.fontSize = Math.floor(SKIN_PREVIEW_SIZE * 0.22) + 'px'; // scale emoji
+  box.style.fontSize = Math.floor(SKIN_PREVIEW_SIZE * 0.35) + 'px'; // scale emoji (increased from 0.22)
   box.style.color = 'white';
   box.innerText = '🎁'; // gift icon initially
 
@@ -1465,6 +1513,28 @@ function drawBird(ctx, bird) {
 }
 
 
+
+function drawStaticBackground() {
+  // --- Chamber background (metallic) - static version for skin menu ---
+  let bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  bg.addColorStop(0, '#555');
+  bg.addColorStop(0.5, '#888');
+  bg.addColorStop(1, '#555');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // --- Static panel patterns (uniform distribution) ---
+  ctx.strokeStyle = '#444';
+  ctx.lineWidth = 2;
+
+  // Draw regular vertical lines (no movement offset)
+  for (let i = 0; i < canvas.width; i += 120) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i, canvas.height);
+    ctx.stroke();
+  }
+}
 
 function draw() {
   // --- Chamber background (metallic) ---
