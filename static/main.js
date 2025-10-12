@@ -2018,7 +2018,7 @@ function draw() {
     if (shockTimer > 0 || barsGlowing) {
       // Use the glow color that was stored when this pipe was spawned
       ctx.shadowColor = p.glowColor;
-      ctx.shadowBlur = 25;
+      ctx.shadowBlur = 40;
     } else {
       ctx.shadowBlur = 0;
     }
