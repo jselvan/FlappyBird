@@ -1872,6 +1872,40 @@ document.querySelector('#skin-menu #start').addEventListener('click', () => {
   reset();     // start the game
 });
 
-canvas.addEventListener('click', () => { if (running) flap()});
-//canvas.addEventListener('click', () => { if (running) flap(); else reset(); });
-document.addEventListener('keydown', (e) => { if (e.code === 'Space') { e.preventDefault(); if (running) flap()} });
+// Enhanced input handling for mobile optimization
+function handleFlap(e) {
+  if (e) e.preventDefault();
+  if (running) flap();
+}
+
+// Touch events for mobile (no 300ms delay)
+canvas.addEventListener('touchstart', handleFlap, { passive: false });
+canvas.addEventListener('touchend', (e) => e.preventDefault(), { passive: false });
+
+// Click events for desktop/fallback
+canvas.addEventListener('click', handleFlap);
+
+// Keyboard events
+document.addEventListener('keydown', (e) => { 
+  if (e.code === 'Space') { 
+    e.preventDefault(); 
+    if (running) flap();
+  } 
+});
+
+// iOS Audio Context fix - resume audio context on first user interaction
+let audioContextResumed = false;
+function resumeAudioContext() {
+  if (!audioContextResumed && typeof webkitAudioContext !== 'undefined') {
+    // Try to resume audio context for iOS
+    if (audio.music.readyState >= 2) {  // HAVE_ENOUGH_DATA
+      audio.music.play().then(() => {
+        audio.music.pause();
+        audioContextResumed = true;
+      }).catch(() => {});
+    }
+  }
+}
+
+document.addEventListener('touchstart', resumeAudioContext, { once: true });
+document.addEventListener('click', resumeAudioContext, { once: true });

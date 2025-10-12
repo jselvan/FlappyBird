@@ -1,4 +1,4 @@
-/* --- Game page styles (unchanged) --- */
+/* --- Game page styles with mobile optimizations --- */
 body, html {
   font: 16px/1.5 "Arial", sans-serif;
   font-weight: bold;
@@ -10,6 +10,14 @@ body, html {
   align-items: center;
   background: #000; /* game background */
   color: #111; /* text color */
+  
+  /* iOS/Mobile optimizations */
+  -webkit-touch-callout: none; /* Disable callout on iOS */
+  -webkit-user-select: none;   /* Disable text selection */
+  user-select: none;           /* Standard property for text selection */
+  -webkit-tap-highlight-color: transparent; /* Remove tap highlight */
+  touch-action: manipulation;  /* Disable double-tap zoom */
+  overscroll-behavior: none;   /* Prevent bounce scrolling */
 }
 
 #game {
@@ -21,7 +29,14 @@ body, html {
 
 #ui { position: absolute; top: 6px; left: 6px; }
 #score { background: rgba(0, 170, 255, 0.8); padding:6px 10px; border-radius:6px; }
-canvas { border: 2px solid #333; background: #7a7a7a }
+canvas { 
+  border: 2px solid #333; 
+  background: #7a7a7a;
+  /* Canvas optimizations for mobile */
+  transform: translateZ(0); /* Hardware acceleration */
+  -webkit-transform: translateZ(0);
+  will-change: transform;   /* Hint for browser optimization */
+}
 
 /* --- Leaderboard page styles --- */
 #leaderboard {
