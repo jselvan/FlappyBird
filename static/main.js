@@ -1314,7 +1314,7 @@ function showLootBox(onComplete, message = '', secretSkinKey = null, secretSkinD
   const msgDiv = document.createElement('div');
   const isSecretSkin = secretSkinKey && secretSkinData;
   msgDiv.style.color = isSecretSkin ? '#00aaff' : 'gold'; // blue for secret skins, gold for regular
-  msgDiv.style.fontSize = '16px';
+  msgDiv.style.fontSize = '14px';
   msgDiv.style.fontWeight = 'bold';
   msgDiv.style.textAlign = 'center';
   msgDiv.style.textShadow = '0 2px 4px rgba(0, 0, 0, 0.7)';
