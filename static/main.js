@@ -2,8 +2,63 @@
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
-const GAME_WIDTH = 400;
-const GAME_HEIGHT = 600;
+// === FIXED HIGH-RESOLUTION RENDERING SYSTEM ===
+// Game renders at fixed high resolution, CSS handles scaling to display size
+const GAME_WIDTH = 2400;  // Fixed high-resolution width
+const GAME_HEIGHT = 3600; // Fixed high-resolution height (maintains 2:3 aspect ratio)
+
+function updateCanvasSize() {
+  // Get the CSS-computed display size
+  const rect = canvas.getBoundingClientRect();
+  
+  // Canvas internal resolution is always fixed at high resolution
+  canvas.width = GAME_WIDTH;
+  canvas.height = GAME_HEIGHT;
+  
+  // CSS handles all the scaling from internal resolution to display size
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  
+  return { width: rect.width, height: rect.height };
+}
+
+// Initialize canvas with fixed internal resolution
+const displaySize = updateCanvasSize();
+
+// Enable high-quality rendering for crisp graphics
+ctx.imageSmoothingEnabled = true;
+ctx.imageSmoothingQuality = 'high';
+
+// Additional canvas optimizations for mobile
+ctx.textBaseline = 'top';
+ctx.textAlign = 'left';
+
+// Update canvas size on window resize
+window.addEventListener('resize', () => {
+  const newDisplaySize = updateCanvasSize();
+  
+  // Restore rendering settings after resize
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+  
+  // Note: Game logic continues to use fixed GAME_WIDTH/GAME_HEIGHT
+  // CSS automatically handles scaling to new display size
+});
+
+// === RELATIVE SIZING SYSTEM ===
+// All measurements are now based on dynamic canvas size and bird proportions
+// to maintain consistent gameplay feel across different screen sizes
+
+// Base bird size as a proportion of game height (72/600 = 0.12)
+const BIRD_SIZE_RATIO = 0.12; // Bird size relative to game height
+const BIRD_SIZE = GAME_HEIGHT * BIRD_SIZE_RATIO;
+const BIRD_HALF = BIRD_SIZE / 2;
+
+// Bird position as proportion of game width (80/400 = 0.2)
+const BIRD_X_RATIO = 0.2; // Bird X position relative to game width
+const BIRD_X = GAME_WIDTH * BIRD_X_RATIO;
 
 // Set the canvas logical size once
 canvas.width = GAME_WIDTH;
@@ -269,7 +324,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 let lastTime = 0;
 let progressAnimating = false;
-let bird = { x: 80, y: canvas.height/2, vy: 0 };
+let bird = { x: BIRD_X, y: canvas.height/2, vy: 0 };
 let wingAngle = 0;
 let wingVelocity = 0;
 
@@ -282,17 +337,32 @@ let frame = 0;
 let score = 0;
 let running = false;
 
-const MAX_WING_ROT = 1.5; // 
-const REST_ANGLE = 0;      // wings rest at 0 radians
-const DAMPING = 0.15;      // how quickly velocity decays
-const RETURN_SPEED = 0.08; // how quickly angle returns to rest
+// Physics constants - made relative to maintain exact gameplay feel across different sizes
+const GRAVITY_RATIO = 0.22 / 72; // Original gravity (0.22) relative to original bird size (72px)
+const FLAP_VELOCITY_RATIO = -5 / 72; // Original flap velocity (-5) relative to original bird size (72px)
+const WING_VELOCITY_RATIO = -0.5; // Wing velocity remains as angular velocity (not size-dependent)
 
-const BIRD_SIZE = 72;
-const BIRD_HALF = BIRD_SIZE / 2;
-const TOP_PADDING = 24;    // pixels to ignore above
-const BOTTOM_PADDING = 16;  // pixels to ignore below
-const RIGHT_PADDING = 24;  // pixels to ignore side
-const LEFT_PADDING = 44;  // pixels to ignore side
+// Movement speed constants - made relative to maintain consistent game pace
+const PIPE_SPEED_RATIO = 4 / 72; // Original pipe speed (4) relative to original bird size (72px)
+const BG_SPEED_RATIO = 2.7 / 72; // Original background speed (2.7) relative to original bird size (72px)
+
+const MAX_WING_ROT = 1.5; // Maximum wing rotation in radians (angular, not size-dependent)
+const REST_ANGLE = 0;      // wings rest at 0 radians
+const DAMPING = 0.15;      // how quickly velocity decays (ratio, not size-dependent)
+const RETURN_SPEED = 0.08; // how quickly angle returns to rest (ratio, not size-dependent)
+
+// Calculated physics constants based on current game size
+const GRAVITY = GRAVITY_RATIO * BIRD_SIZE;
+const FLAP_VELOCITY = FLAP_VELOCITY_RATIO * BIRD_SIZE;
+const PIPE_SPEED = PIPE_SPEED_RATIO * BIRD_SIZE;
+const BG_SPEED = BG_SPEED_RATIO * BIRD_SIZE;
+
+// Collision padding as ratios of bird size to maintain proportions
+
+const TOP_PADDING = BIRD_SIZE * 0.33;
+const BOTTOM_PADDING = BIRD_SIZE * 0.22;
+const RIGHT_PADDING = BIRD_SIZE * 0.33;
+const LEFT_PADDING = BIRD_SIZE * 0.61;
 
 const scale_mult = 10; // score multiplier for distance from center of gap
 const MIN_GAP = BIRD_SIZE*1.7; // minimum gap size
@@ -300,10 +370,38 @@ const GAP_JITTER = BIRD_SIZE; // range of gap size variation
 const MAX_GAP = MIN_GAP + GAP_JITTER; // maximum gap size for scoring normalization
 
 
-const PIPE_WIDTH = 40;
+// Pipe width as ratio of bird size (40/72 = 0.56)
+const PIPE_WIDTH = BIRD_SIZE * 0.56
 
-const BASE_DELAY = 1400; // average pipe position variation
-const PIPE_JITTER = 200; // range of pipe position variation
+// Pipe timing - based on pipe speed to maintain consistent spacing
+// Original: 1400ms base delay with 4 pixel/frame speed = ~350px spacing
+const PIPE_SPACING_RATIO = 350 / 72; // Desired spacing relative to bird size
+const BASE_DELAY = (PIPE_SPACING_RATIO * BIRD_SIZE) / PIPE_SPEED * (1000 / 60); // Convert to timer units
+const PIPE_JITTER = BASE_DELAY * 0.14; // 14% jitter (200/1400 from original)
+
+// Background pattern spacing as ratio of game width (120/400 = 0.3)
+const BG_PATTERN_SIZE = GAME_WIDTH * 0.3;
+
+// Pipe boundary margins as ratios of game height (50/600 = 0.083)
+const PIPE_MARGIN = GAME_HEIGHT * 0.083;
+
+// Pipe cleanup distance as ratio of pipe width (-50/-40 = 1.25)
+const PIPE_CLEANUP_DISTANCE = PIPE_WIDTH * 1.25;
+
+// Background decoration sizes as ratios of pattern size
+const BG_DECORATION_OFFSET = BG_PATTERN_SIZE * 0.5;
+const BG_DECORATION_RADIUS = BG_PATTERN_SIZE * 0.167;
+
+// Square decoration ratios (40/120 = 0.333 for offset and size)
+const BG_SQUARE_OFFSET = BG_PATTERN_SIZE * 0.333;
+const BG_SQUARE_SIZE = BG_PATTERN_SIZE * 0.333;
+const BG_SQUARE_HALF = BG_PATTERN_SIZE * 0.167;
+
+// Background line width based on bird size (original: 2px for 72px bird)
+const BG_LINE_WIDTH = BIRD_SIZE * (2 / 72);
+
+// UI positioning - positioned high up, near top of screen
+const UI_OFFSET = GAME_HEIGHT * 0.02; // Internal canvas offset (not used for HTML positioning)
 let nextPipeDelay = BASE_DELAY;
 let pipeTimer = 0;
 
@@ -346,7 +444,9 @@ const CUMULATIVE_SCORE_STEP = 100;           // every 100 cumulative points
 // Define available skins (add more as needed)
 let lootBoxActive = false;
 let allSkinsUnlockedShown = localStorage.getItem('allSkinsUnlockedShown') === 'true' || false;
-const SKIN_PREVIEW_SIZE = 144; // size of skin preview in menu
+// Skin preview rendering system - high resolution rendering with CSS scaling
+const SKIN_PREVIEW_RENDER_SIZE = 480; // High resolution internal rendering (4x scale)
+const SKIN_PREVIEW_DISPLAY_SIZE = 120; // Display size after CSS scaling
 
 // Secret skins unlocked by leaderboard achievements
 const SECRET_SKINS = {
@@ -553,16 +653,20 @@ for (let key in allSkinsData) {
 function createSkinPreview(skinKey) {
   const skin = skinImages[skinKey];
 
-  // Create a canvas for the preview
+  // Create a high-resolution canvas for crisp rendering
   const canvas = document.createElement('canvas');
-  canvas.width = SKIN_PREVIEW_SIZE;
-  canvas.height = SKIN_PREVIEW_SIZE;
+  canvas.width = SKIN_PREVIEW_RENDER_SIZE;
+  canvas.height = SKIN_PREVIEW_RENDER_SIZE;
   const ctx = canvas.getContext('2d');
+  
+  // Enable high-quality rendering
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
   const centerX = canvas.width / 2;
   const centerY = canvas.height / 2;
 
-  const size = SKIN_PREVIEW_SIZE; // draw wings and body at full preview size
+  const size = SKIN_PREVIEW_RENDER_SIZE; // draw wings and body at full render size
 
   // --- Back wing ---
   if (skin.backWing && skin.backWing.complete) {
@@ -608,14 +712,17 @@ function updateSkinDisplay() {
   if (display && skinData) {
     nameDisplay.innerText = skinData.name;
 
-    // Show preview of the skin (body + wings) at SKIN_PREVIEW_SIZE
+    // Show preview of the skin (body + wings) at high resolution
     const previewURL = createSkinPreview(currentSkin);
 
     display.innerHTML = ''; // clear previous preview
     const img = document.createElement('img');
     img.src = previewURL;
-    img.width = SKIN_PREVIEW_SIZE;
-    img.height = SKIN_PREVIEW_SIZE;
+    // Set display size (CSS will scale down the high-res image)
+    img.width = SKIN_PREVIEW_DISPLAY_SIZE;
+    img.height = SKIN_PREVIEW_DISPLAY_SIZE;
+    // Enable smooth scaling
+    img.style.imageRendering = 'auto';
     display.appendChild(img);
   }
 }
@@ -718,7 +825,9 @@ function createProgressUI() {
   // function to update position relative to canvas
   function updateProgressBarPosition() {
     const rect = canvas.getBoundingClientRect();
-    wrapper.style.top = rect.top + 40 + 'px'; // 40px below top of canvas
+    // Use display-relative offset instead of internal canvas resolution
+    const displayOffset = rect.height * 0.02; // 2% of display height
+    wrapper.style.top = rect.top + displayOffset + 'px';
     wrapper.style.left = rect.left + rect.width / 2 + 'px';
     wrapper.style.transform = 'translateX(-50%)';
   }
@@ -1097,10 +1206,10 @@ function showLootBox(onComplete, message = '', secretSkinKey = null, secretSkinD
   msgDiv.style.whiteSpace = 'nowrap'; // prevent text wrapping
   msgDiv.innerText = message;
 
-  // Box itself (scaled to SKIN_PREVIEW_SIZE)
+  // Box itself (scaled to display size)
   const box = document.createElement('div');
-  box.style.width = SKIN_PREVIEW_SIZE + 'px';
-  box.style.height = SKIN_PREVIEW_SIZE + 'px';
+  box.style.width = SKIN_PREVIEW_DISPLAY_SIZE + 'px';
+  box.style.height = SKIN_PREVIEW_DISPLAY_SIZE + 'px';
   box.style.background = '#333';
   box.style.border = isSecretSkin ? '3px solid #00aaff' : '3px solid gold'; // blue border for secret skins
   box.style.borderRadius = '12px';
@@ -1108,7 +1217,7 @@ function showLootBox(onComplete, message = '', secretSkinKey = null, secretSkinD
   box.style.alignItems = 'center';
   box.style.justifyContent = 'center';
   box.style.cursor = 'pointer';
-  box.style.fontSize = Math.floor(SKIN_PREVIEW_SIZE * 0.35) + 'px'; // scale emoji (increased from 0.22)
+  box.style.fontSize = Math.floor(SKIN_PREVIEW_DISPLAY_SIZE * 0.35) + 'px'; // scale emoji (increased from 0.22)
   box.style.color = 'white';
 
   // Fix the emoji assignment before appending
@@ -1161,8 +1270,9 @@ function showLootBox(onComplete, message = '', secretSkinKey = null, secretSkinD
       const previewURL = createSkinPreview(newSkinKey);
       const img = new Image();
       img.src = previewURL;
-      img.style.width = SKIN_PREVIEW_SIZE * 0.9 + 'px';
-      img.style.height = SKIN_PREVIEW_SIZE * 0.9 + 'px';
+      img.style.width = SKIN_PREVIEW_DISPLAY_SIZE * 0.9 + 'px';
+      img.style.height = SKIN_PREVIEW_DISPLAY_SIZE * 0.9 + 'px';
+      img.style.imageRendering = 'auto'; // Enable smooth scaling
       box.appendChild(img);
       
       // Check if this was the last regular skin to unlock (secret skins don't count)
@@ -1208,7 +1318,7 @@ function showLootBox(onComplete, message = '', secretSkinKey = null, secretSkinD
 
 function reset() {
   if (progressAnimating) return; // block new game until animation finishes
-  bird = { x: 80, y: canvas.height/2, vy: 0 };
+  bird = { x: BIRD_X, y: canvas.height/2, vy: 0 };
   pipes = [];
   frame = 0;
   score = 0;
@@ -1432,8 +1542,8 @@ function spawnPipe() {
   }
   
   // Define valid range for gap center position
-  const minY = 50 + gap / 2; // ensure gap doesn't go above screen
-  const maxY = canvas.height - gap / 2 - 50; // ensure gap doesn't go below screen
+  const minY = PIPE_MARGIN + gap / 2; // ensure gap doesn't go above screen
+  const maxY = canvas.height - gap / 2 - PIPE_MARGIN; // ensure gap doesn't go below screen
   
   // Use current distribution for gap positioning
   const gapCenter = getGapPosition(minY, maxY, currentDistribution);
@@ -1464,7 +1574,7 @@ function spawnPipe() {
 function update(dt) {
   if (!running) return;
   frame++;
-  bird.vy += 0.22 * dt; // gravity
+  bird.vy += GRAVITY * dt; // gravity (now relative to bird size)
   bird.y  += bird.vy * dt;
 
   // --- Smooth tilt update ---
@@ -1492,12 +1602,13 @@ function update(dt) {
 
   // --- Move pipes ---
   for (let p of pipes) {
-    p.x -= 4 * dt;
+    p.x -= PIPE_SPEED * dt;
   }
 
   // --- Move background (frame-rate independent) ---
-  bgOffset -= 2.7 * dt; // slower than pipes for depth
-  if (bgOffset <= -120) bgOffset = 0;
+  bgOffset -= BG_SPEED * dt; // slower than pipes for depth
+  bgOffset = Math.round(bgOffset); // Round to integer pixels to prevent sub-pixel rendering issues
+  if (bgOffset <= -BG_PATTERN_SIZE) bgOffset += Math.round(BG_PATTERN_SIZE); // Maintain smooth scrolling
 
   // --- Bounds check ---
   if (bird.y > canvas.height || bird.y < 0) endGame();
@@ -1556,7 +1667,7 @@ function update(dt) {
     }
   }
 
-  pipes = pipes.filter(p => p.x > -50);
+  pipes = pipes.filter(p => p.x > -PIPE_CLEANUP_DISTANCE);
 }
 
 
@@ -1608,10 +1719,10 @@ function drawStaticBackground() {
 
   // --- Static panel patterns (uniform distribution) ---
   ctx.strokeStyle = '#444';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = BG_LINE_WIDTH;
 
   // Draw regular vertical lines (no movement offset)
-  for (let i = 0; i < canvas.width; i += 120) {
+  for (let i = 0; i < canvas.width; i += BG_PATTERN_SIZE) {
     ctx.beginPath();
     ctx.moveTo(i, 0);
     ctx.lineTo(i, canvas.height);
@@ -1631,27 +1742,33 @@ function draw() {
   // --- Panel patterns based on distribution type ---
 
   ctx.strokeStyle = '#444';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = BG_LINE_WIDTH;
 
   // Draw different patterns based on current distribution
   switch (currentDistribution) {
     case DISTRIBUTION_TYPES.UNIFORM:
       // Regular vertical lines (original pattern)
-      for (let i = bgOffset; i < canvas.width; i += 120) {
-        ctx.beginPath();
-        ctx.moveTo(i, 0);
-        ctx.lineTo(i, canvas.height);
-        ctx.stroke();
+      for (let i = bgOffset; i < canvas.width + BG_PATTERN_SIZE; i += BG_PATTERN_SIZE) {
+        if (i >= -BG_PATTERN_SIZE) { // Only draw visible lines
+          const x = Math.round(i); // Round to avoid sub-pixel rendering
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, canvas.height);
+          ctx.stroke();
+        }
       }
       break;
 
     case DISTRIBUTION_TYPES.BIMODAL:
       // Regular vertical lines (same as uniform)
-      for (let i = bgOffset; i < canvas.width; i += 120) {
-        ctx.beginPath();
-        ctx.moveTo(i, 0);
-        ctx.lineTo(i, canvas.height);
-        ctx.stroke();
+      for (let i = bgOffset; i < canvas.width + BG_PATTERN_SIZE; i += BG_PATTERN_SIZE) {
+        if (i >= -BG_PATTERN_SIZE) { // Only draw visible lines
+          const x = Math.round(i); // Round to avoid sub-pixel rendering
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, canvas.height);
+          ctx.stroke();
+        }
       }
       
       // Add 3 horizontal lines to emphasize the bimodal nature
@@ -1682,43 +1799,52 @@ function draw() {
 
     case DISTRIBUTION_TYPES.TOP_SKEWED:
       // Regular vertical lines with faint circles in middle of each panel
-      for (let i = bgOffset; i < canvas.width; i += 120) {
-        ctx.beginPath();
-        ctx.moveTo(i, 0);
-        ctx.lineTo(i, canvas.height);
-        ctx.stroke();
-        
-        // Faint circle in center of panel
-        ctx.globalAlpha = 0.2;
-        ctx.beginPath();
-        ctx.arc(i + 60, canvas.height / 2, 20, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.globalAlpha = 1;
+      for (let i = bgOffset; i < canvas.width + BG_PATTERN_SIZE; i += BG_PATTERN_SIZE) {
+        if (i >= -BG_PATTERN_SIZE) { // Only draw visible lines
+          const x = Math.round(i); // Round to avoid sub-pixel rendering
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, canvas.height);
+          ctx.stroke();
+          
+          // Faint circle in center of panel
+          ctx.globalAlpha = 0.2;
+          ctx.beginPath();
+          ctx.arc(x + BG_DECORATION_OFFSET, canvas.height / 2, BG_DECORATION_RADIUS, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
       }
       break;
 
     case DISTRIBUTION_TYPES.BOTTOM_SKEWED:
       // Regular vertical lines with faint squares in middle of each panel
-      for (let i = bgOffset; i < canvas.width; i += 120) {
-        ctx.beginPath();
-        ctx.moveTo(i, 0);
-        ctx.lineTo(i, canvas.height);
-        ctx.stroke();
-        
-        // Faint square in center of panel
-        ctx.globalAlpha = 0.2;
-        ctx.strokeRect(i + 40, canvas.height / 2 - 20, 40, 40);
-        ctx.globalAlpha = 1;
+      for (let i = bgOffset; i < canvas.width + BG_PATTERN_SIZE; i += BG_PATTERN_SIZE) {
+        if (i >= -BG_PATTERN_SIZE) { // Only draw visible lines
+          const x = Math.round(i); // Round to avoid sub-pixel rendering
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, canvas.height);
+          ctx.stroke();
+          
+          // Faint square in center of panel
+          ctx.globalAlpha = 0.2;
+          ctx.strokeRect(x + BG_SQUARE_OFFSET, canvas.height / 2 - BG_SQUARE_HALF, BG_SQUARE_SIZE, BG_SQUARE_SIZE);
+          ctx.globalAlpha = 1;
+        }
       }
       break;
 
     default:
       // Fallback to uniform pattern
-      for (let i = bgOffset; i < canvas.width; i += 120) {
-        ctx.beginPath();
-        ctx.moveTo(i, 0);
-        ctx.lineTo(i, canvas.height);
-        ctx.stroke();
+      for (let i = bgOffset; i < canvas.width + BG_PATTERN_SIZE; i += BG_PATTERN_SIZE) {
+        if (i >= -BG_PATTERN_SIZE) { // Only draw visible lines
+          const x = Math.round(i); // Round to avoid sub-pixel rendering
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, canvas.height);
+          ctx.stroke();
+        }
       }
       break;
   }
@@ -1728,8 +1854,13 @@ function draw() {
 
   // --- Bars (shock electrodes) ---
   for (let p of pipes) {
-    let barGradient = ctx.createLinearGradient(p.x, 0, p.x + 40, 0);
-    
+    // Use relative sizing for bar width and bolt radius
+    const BAR_WIDTH = PIPE_WIDTH; // relative to bird size
+    const BOLT_RADIUS = BIRD_SIZE * 0.055; // 4/72 ≈ 0.055
+    const BOLT_OFFSET = BIRD_SIZE * 0.14;   // 10/72 ≈ 0.14
+
+    let barGradient = ctx.createLinearGradient(p.x, 0, p.x + BAR_WIDTH, 0);
+
     if (p.golden) {
       // Golden pipe gradient
       barGradient.addColorStop(0, '#b8860b'); // dark gold
@@ -1744,31 +1875,31 @@ function draw() {
 
     ctx.fillStyle = barGradient;
 
-  if (shockTimer > 0 || barsGlowing) {
-    // Use the glow color that was stored when this pipe was spawned
-    ctx.shadowColor = p.glowColor;
-    ctx.shadowBlur = 15;
-  } else {
-    ctx.shadowBlur = 0;
-  }
+    if (shockTimer > 0 || barsGlowing) {
+      // Use the glow color that was stored when this pipe was spawned
+      ctx.shadowColor = p.glowColor;
+      ctx.shadowBlur = 15;
+    } else {
+      ctx.shadowBlur = 0;
+    }
 
     // Top bar
-    ctx.fillRect(p.x, 0, 40, p.top);
+    ctx.fillRect(p.x, 0, BAR_WIDTH, p.top);
     // Bottom bar
-    ctx.fillRect(p.x, p.bottom, 40, canvas.height - p.bottom);
+    ctx.fillRect(p.x, p.bottom, BAR_WIDTH, canvas.height - p.bottom);
 
     ctx.shadowBlur = 0; // reset
 
-    // Bolts
+    // Bolts (relative positions)
     ctx.fillStyle = '#333';
-    for (let y of [10, p.top - 10]) {
+    for (let y of [BOLT_OFFSET, p.top - BOLT_OFFSET]) {
       ctx.beginPath();
-      ctx.arc(p.x + 20, y, 4, 0, Math.PI * 2);
+      ctx.arc(p.x + BAR_WIDTH / 2, y, BOLT_RADIUS, 0, Math.PI * 2);
       ctx.fill();
     }
-    for (let y of [p.bottom + 10, canvas.height - 10]) {
+    for (let y of [p.bottom + BOLT_OFFSET, canvas.height - BOLT_OFFSET]) {
       ctx.beginPath();
-      ctx.arc(p.x + 20, y, 4, 0, Math.PI * 2);
+      ctx.arc(p.x + BAR_WIDTH / 2, y, BOLT_RADIUS, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -1777,7 +1908,7 @@ function draw() {
   for (let s of effects) {
     ctx.fillStyle = 'gold';
     ctx.beginPath();
-    ctx.arc(s.x, s.y, 2, 0, Math.PI * 2);
+    ctx.arc(s.x, s.y, BIRD_SIZE * 0.028, 0, Math.PI * 2); // 2/72 ≈ 0.028
     ctx.fill();
 
     s.x += s.vx;
@@ -1791,12 +1922,12 @@ function draw() {
     const alpha = popup.life / popup.maxLife; // fade out over time
     ctx.fillStyle = popup.color;
     ctx.globalAlpha = alpha;
-    ctx.font = '20px Arial';
+    ctx.font = `${Math.floor(BIRD_SIZE * 0.28)}px Arial`; // 20/72 ≈ 0.28
     ctx.textAlign = 'center';
     ctx.fillText(popup.text, popup.x, popup.y);
-    
+
     // Float upward
-    popup.y -= 1.5;
+    popup.y -= BIRD_SIZE * 0.021; // 1.5/72 ≈ 0.021
     popup.life--;
   }
   scorePopups = scorePopups.filter(p => p.life > 0);
@@ -1819,8 +1950,8 @@ function loop(timestamp) {
 }
 
 function flap() {
-  bird.vy = -5; // existing lift
-  wingVelocity = -0.5; // boost wing rotation
+  bird.vy = FLAP_VELOCITY; // existing lift
+  wingVelocity = WING_VELOCITY_RATIO; // boost wing rotation
   playSound('flap'); // Play flap sound effect
 }
 
