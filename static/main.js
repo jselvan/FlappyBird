@@ -62,8 +62,8 @@ function playSound(soundName) {
   if (sound) {
     // Ensure sound doesn't loop for single plays
     sound.loop = false;
-    // For flap sound, reset to beginning if already playing to avoid stacking
-    if (soundName === 'flap') {
+    // For flap and sparkle sound, reset to beginning if already playing to avoid stacking
+    if (soundName === 'flap' || soundName === 'sparkle') {
       sound.currentTime = 0;
     }
     sound.play().catch(err => console.log(`Audio play failed for ${soundName}:`, err));
@@ -1351,6 +1351,10 @@ function update(dt) {
     p.x -= 4 * dt;
   }
 
+  // --- Move background (frame-rate independent) ---
+  bgOffset -= 2.7 * dt; // slower than pipes for depth
+  if (bgOffset <= -120) bgOffset = 0;
+
   // --- Bounds check ---
   if (bird.y > canvas.height || bird.y < 0) endGame();
 
@@ -1459,8 +1463,6 @@ function draw() {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   // --- Panel patterns based on distribution type ---
-  bgOffset -= 1.5; // slower than pipes for depth
-  if (bgOffset <= -120) bgOffset = 0;
 
   ctx.strokeStyle = '#444';
   ctx.lineWidth = 2;
