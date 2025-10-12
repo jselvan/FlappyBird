@@ -223,6 +223,15 @@ function resetPlayerData() {
   // Update UI
   updateSkinMenuArrows();
   updateSkinDisplay(); // make sure this redraws the skin to 'Classic'
+  
+  // Restore canvas sizing and rendering settings after reset
+  updateCanvasSize();
+  
+  // Restore rendering settings that may have been lost
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
 }
 
 // --- login system ---
