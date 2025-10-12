@@ -878,6 +878,9 @@ function showMenu() {
   if (menu) menu.style.display = 'block';
   updateSkinDisplay();
   
+  // Show leaderboard button now that player can interact
+  showLeaderboardButton();
+  
   // Multiple background drawing attempts to handle various browser behaviors
   drawStaticBackground(); // Immediate attempt
   
@@ -2139,7 +2142,6 @@ function endGame() {
 
 function continueEndGame(prevTotal) {
   showProgressUI();
-  showLeaderboardButton();
   showMuteButton(); // show mute button when game ends
   updateProgressDisplay(true, score, prevTotal, () => {
     showFreezeFrame(() => {
