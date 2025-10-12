@@ -1023,6 +1023,22 @@ function hideLeaderboardButton() {
   if (leaderboardBtn) leaderboardBtn.style.display = 'none';
 }
 
+function showMuteButton() {
+  const muteBtn = document.getElementById('mute-btn');
+  if (muteBtn) {
+    muteBtn.style.setProperty('display', 'flex', 'important');
+    muteBtn.style.visibility = 'visible';
+  }
+}
+
+function hideMuteButton() {
+  const muteBtn = document.getElementById('mute-btn');
+  if (muteBtn) {
+    muteBtn.style.setProperty('display', 'none', 'important');
+    muteBtn.style.visibility = 'hidden';
+  }
+}
+
 
 function updateSkinMenuArrows() {
   const leftArrow = document.getElementById('skin-left');
@@ -1219,6 +1235,7 @@ function reset() {
 
   hideProgressUI(); // <--- hide bar while running
   hideLeaderboardButton(); // hide leaderboard button while playing
+  hideMuteButton(); // hide mute button during gameplay
 
   // start game loop
   lastTime = 0;
@@ -1852,6 +1869,7 @@ function endGame() {
 function continueEndGame(prevTotal) {
   showProgressUI();
   showLeaderboardButton();
+  showMuteButton(); // show mute button when game ends
   updateProgressDisplay(true, score, prevTotal, () => {
     showMenu();
   });
