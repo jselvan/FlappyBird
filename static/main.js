@@ -8,22 +8,42 @@ const GAME_WIDTH = 2400;  // Fixed high-resolution width
 const GAME_HEIGHT = 3600; // Fixed high-resolution height (maintains 2:3 aspect ratio)
 
 function updateCanvasSize() {
-  // Get the CSS-computed display size
+  // Use visual viewport if available (better for mobile with virtual keyboards)
+  const viewport = window.visualViewport || window;
+  const viewportWidth = viewport.width || window.innerWidth;
+  const viewportHeight = viewport.height || window.innerHeight;
+  
+  // Get the CSS-computed display size, but ensure we're using full viewport
   const rect = canvas.getBoundingClientRect();
   
   // Canvas internal resolution is always fixed at high resolution
   canvas.width = GAME_WIDTH;
   canvas.height = GAME_HEIGHT;
   
-  // CSS handles all the scaling from internal resolution to display size
-  canvas.style.width = rect.width + 'px';
-  canvas.style.height = rect.height + 'px';
+  // For canvas sizing, recalculate based on current viewport to avoid keyboard issues
+  // Use the same responsive logic as CSS but with current viewport dimensions
+  let displayWidth, displayHeight;
   
-  return { width: rect.width, height: rect.height };
+  if (viewportWidth <= 480) {
+    // Mobile phones - use most of the screen but be conservative
+    displayWidth = Math.min(viewportWidth * 0.9, 400);
+    displayHeight = Math.min(displayWidth * 1.5, 600, viewportHeight * 0.8);
+  } else {
+    displayWidth = rect.width;
+    displayHeight = rect.height;
+  }
+  
+  // CSS handles all the scaling from internal resolution to display size
+  canvas.style.width = displayWidth + 'px';
+  canvas.style.height = displayHeight + 'px';
+  
+  return { width: displayWidth, height: displayHeight };
 }
 
-// Initialize canvas with fixed internal resolution
-const displaySize = updateCanvasSize();
+// Canvas will be properly sized after login is complete
+// Set up internal resolution without sizing display yet
+canvas.width = GAME_WIDTH;
+canvas.height = GAME_HEIGHT;
 
 // Enable high-quality rendering for crisp graphics
 ctx.imageSmoothingEnabled = true;
@@ -33,8 +53,10 @@ ctx.imageSmoothingQuality = 'high';
 ctx.textBaseline = 'top';
 ctx.textAlign = 'left';
 
-// Update canvas size on window resize
+// Update canvas size on window resize (only after login is complete)
 window.addEventListener('resize', () => {
+  if (!isLoginComplete) return; // Don't resize until login is finished
+  
   const newDisplaySize = updateCanvasSize();
   
   // Restore rendering settings after resize
@@ -42,10 +64,26 @@ window.addEventListener('resize', () => {
   ctx.imageSmoothingQuality = 'high';
   ctx.textBaseline = 'top';
   ctx.textAlign = 'left';
-  
-  // Note: Game logic continues to use fixed GAME_WIDTH/GAME_HEIGHT
-  // CSS automatically handles scaling to new display size
 });
+
+// Handle mobile keyboard appearance/disappearance with visual viewport API
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    if (!isLoginComplete) return; // Don't resize until login is finished
+    
+    // Debounce viewport changes to avoid excessive updates
+    clearTimeout(window.viewportResizeTimeout);
+    window.viewportResizeTimeout = setTimeout(() => {
+      const newDisplaySize = updateCanvasSize();
+      
+      // Restore rendering settings after resize
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'left';
+    }, 100);
+  });
+}
 
 // === RELATIVE SIZING SYSTEM ===
 // All measurements are now based on dynamic canvas size and bird proportions
@@ -69,6 +107,7 @@ canvas.height = GAME_HEIGHT;
 let playerName = localStorage.getItem("playerName") || null;
 let playerSection = localStorage.getItem("playerSection") || null;
 let bestScore = localStorage.getItem("bestScore") || 0;
+let isLoginComplete = false; // Track if login/initialization is finished
 
 // --- TRACKERS ---
 let cumulativeScore = parseInt(localStorage.getItem('cumulativeScore') || '0');
@@ -267,6 +306,28 @@ function showWelcomeScreen() {
   
   document.getElementById("start-game-btn").addEventListener("click", () => {
     overlay.style.display = "none";
+    
+    // Initialize canvas properly when starting game with stored credentials
+    // No keyboard delay needed here since no input fields were active
+    requestAnimationFrame(() => {
+      // Force reflow to ensure overlay is completely removed
+      overlay.offsetHeight;
+      
+      // Now properly size the canvas for gameplay
+      updateCanvasSize();
+      
+      // Mark login as complete to enable resize handling
+      isLoginComplete = true;
+      
+      // Restore rendering settings after canvas is properly sized
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'left';
+      
+      // Draw background now that canvas is properly configured
+      drawStaticBackground();
+    });
   });
   
   document.getElementById("logout-btn").addEventListener("click", () => {
@@ -313,7 +374,48 @@ function handleLogin() {
   playerName = inputName;
   playerSection = inputSection;
 
-  document.getElementById("login-overlay").style.display = "none";
+  const loginOverlay = document.getElementById("login-overlay");
+  
+  // Show loading state instead of hiding overlay immediately
+  loginOverlay.innerHTML = `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;">
+      <div style="font-size: 24px; font-weight: bold; color: white;">Loading Game...</div>
+      <div style="width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.3); border-top: 4px solid white; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+    </div>
+    <style>
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    </style>
+  `;
+  
+  // Wait for mobile keyboard to disappear and DOM to settle before sizing canvas
+  setTimeout(() => {
+    // Force reflow to ensure keyboard is gone
+    loginOverlay.offsetHeight;
+    
+    // Additional wait to ensure mobile keyboard has fully retracted
+    setTimeout(() => {
+      // Now hide the overlay completely
+      loginOverlay.style.display = "none";
+      
+      // Now that login is complete and keyboard is gone, properly size the canvas
+      updateCanvasSize();
+      
+      // Mark login as complete to enable resize handling
+      isLoginComplete = true;
+      
+      // Restore rendering settings after canvas is properly sized
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'left';
+      
+      // Draw background now that canvas is properly configured
+      drawStaticBackground();
+    }, 300); // Additional delay for keyboard retraction
+  }, 100); // Initial delay for overlay removal
 }
 
 // Initialize login system on page load
@@ -775,7 +877,18 @@ function showMenu() {
   const menu = document.getElementById('skin-menu');
   if (menu) menu.style.display = 'block';
   updateSkinDisplay();
-  drawStaticBackground(); // Draw static background when menu is first shown
+  
+  // Multiple background drawing attempts to handle various browser behaviors
+  drawStaticBackground(); // Immediate attempt
+  
+  // Backup attempts with different timing strategies
+  requestAnimationFrame(() => {
+    drawStaticBackground();
+  });
+  
+  setTimeout(() => {
+    drawStaticBackground();
+  }, 10);
 }
 
 function hideMenu() {
@@ -1420,10 +1533,10 @@ function spawnSparkle(x, y) {
     effects.push({
       x: x + (Math.random() * BIRD_SIZE/4 - BIRD_SIZE/8), // ±BIRD_SIZE/8 horizontal
       y: y - BIRD_SIZE/6 + (Math.random() * BIRD_SIZE/6 - BIRD_SIZE/12), // above center
-      vx: (Math.random() - 0.5) * 6, 
-      vy: (Math.random() - 0.5) * 6, 
+      vx: (Math.random() - 0.5) * (BIRD_SIZE * 0.083), // Scale velocity with bird size (6/72 ≈ 0.083)
+      vy: (Math.random() - 0.5) * (BIRD_SIZE * 0.083), // Scale velocity with bird size
       life: 30,
-      size: 4 // increased sparkle size
+      size: BIRD_SIZE * 0.055 // Scale size with bird size (4/72 ≈ 0.055)
     });
   }
 }
@@ -1917,7 +2030,7 @@ function draw() {
   for (let s of effects) {
     ctx.fillStyle = 'gold';
     ctx.beginPath();
-    ctx.arc(s.x, s.y, BIRD_SIZE * 0.028, 0, Math.PI * 2); // 2/72 ≈ 0.028
+    ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2); // Use the size from the sparkle object
     ctx.fill();
 
     s.x += s.vx;

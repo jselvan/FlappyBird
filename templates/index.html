@@ -24,15 +24,22 @@
         box-sizing: border-box;
         color: #fff;
         text-align: center;
+        /* Ensure overlay doesn't affect document flow or canvas sizing */
+        isolation: isolate;
+        contain: layout style;
       }
       #login-overlay input {
-        width: min(280px, 84%);
+        width: min(280px, 80vw);
+        max-width: 280px;
         padding: 8px 10px;
         font-size: 16px;
         border-radius: 6px;
         border: 1px solid rgba(255,255,255,0.15);
         background: rgba(255,255,255,0.06);
         color: white;
+        box-sizing: border-box;
+        /* Prevent inputs from affecting overall layout */
+        flex-shrink: 0;
       }
       #login-overlay button {
         padding: 10px 18px;
