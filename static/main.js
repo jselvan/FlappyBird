@@ -84,6 +84,7 @@ function stopSound(soundName) {
   if (sound) {
     sound.pause();
     sound.currentTime = 0;
+    sound.loop = false; // Reset loop flag to prevent state issues
   }
 }
 
@@ -1088,6 +1089,18 @@ function reset() {
   currentDistribution = DISTRIBUTION_TYPES.UNIFORM; // reset to uniform
   nextPipeDelay = BASE_DELAY;
   barsGlowing = false;
+  
+  // Reset audio states to prevent carryover issues from previous game (except music)
+  Object.entries(audio).forEach(([soundName, sound]) => {
+    if (soundName !== 'music') { // Keep music playing between games
+      if (sound.currentTime > 0 && !sound.paused) {
+        sound.pause();
+      }
+      sound.currentTime = 0;
+      sound.loop = false; // Reset loop flag
+    }
+  });
+  
   running = true;
 
   hideProgressUI(); // <--- hide bar while running
