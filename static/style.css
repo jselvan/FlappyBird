@@ -305,4 +305,5 @@ canvas {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
   backdrop-filter: blur(5px) !important;
   -webkit-backdrop-filter: blur(5px) !important;
+  white-space: nowrap !important;
 }

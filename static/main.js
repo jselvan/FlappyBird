@@ -348,6 +348,26 @@ let lootBoxActive = false;
 let allSkinsUnlockedShown = localStorage.getItem('allSkinsUnlockedShown') === 'true' || false;
 const SKIN_PREVIEW_SIZE = 144; // size of skin preview in menu
 
+// Secret skins unlocked by leaderboard achievements
+const SECRET_SKINS = {
+  "24k": {
+    name: "24 Karat Sniffy",
+    body: "static/assets/skins/24k_body.png",
+    frontWing: "static/assets/skins/24k_front_wing.png",
+    backWing:  "static/assets/skins/24k_back_wing.png",
+    requirement: "top5", // Top 5 in section
+    unlockMessage: "🏆 Amazing! You reached Top 5 in your section!"
+  },
+  "Number1": { 
+    name: "Number 1 Sniffy",
+    body: "static/assets/skins/number1_body.png",
+    frontWing: "static/assets/skins/front_wing.png",   
+    backWing:  "static/assets/skins/back_wing.png",
+    requirement: "number1", // #1 overall
+    unlockMessage: "👑 LEGENDARY! You achieved #1 overall!"
+  }
+};
+
 const ALL_SKINS = {
   "Classic": { 
     name: "Flappy Sniffy",
@@ -361,23 +381,11 @@ const ALL_SKINS = {
     frontWing: "static/assets/skins/idol_front_wing.png",   
     backWing:  "static/assets/skins/idol_back_wing.png"     
   },
-  "Number1": { 
-    name: "Number 1 Sniffy",
-    body: "static/assets/skins/number1_body.png",
-    frontWing: "static/assets/skins/front_wing.png",   
-    backWing:  "static/assets/skins/back_wing.png"     
-  },
   "Bald": { 
     name: "Bald Sniffy",
     body: "static/assets/skins/bald_body.png",
     frontWing: "static/assets/skins/front_wing.png",  
     backWing:  "static/assets/skins/back_wing.png"     
-  },
-  "24k": {
-    name: "24 Karat Sniffy",
-    body: "static/assets/skins/24k_body.png",
-    frontWing: "static/assets/skins/24k_front_wing.png",
-    backWing:  "static/assets/skins/24k_back_wing.png"
   },
   "Sniffyffy": {
     name: "Sniffyffy",
@@ -490,12 +498,47 @@ const ALL_SKINS = {
 };
 
 
-// Preload all parts
+// Helper function to get all skins (regular + secret)
+function getAllSkinsData() {
+  return { ...ALL_SKINS, ...SECRET_SKINS };
+}
 
+// Check and unlock secret skins based on achievements
+function checkSecretSkinUnlocks(scoreData) {
+  const newlyUnlocked = [];
+  
+  // Check 24 Karat Sniffy (Top 5 in section)
+  if ((scoreData.is_section_top5 || scoreData.is_overall_top5) && !unlockedSkins.includes('24k')) {
+    unlockedSkins.push('24k');
+    newlyUnlocked.push({
+      key: '24k',
+      skin: SECRET_SKINS['24k']
+    });
+  }
+  
+  // Check Number 1 Sniffy (#1 overall)
+  if (scoreData.is_overall_best && !unlockedSkins.includes('Number1')) {
+    unlockedSkins.push('Number1');
+    newlyUnlocked.push({
+      key: 'Number1',
+      skin: SECRET_SKINS['Number1']
+    });
+  }
+  
+  // Save unlocked skins if any were unlocked
+  if (newlyUnlocked.length > 0) {
+    localStorage.setItem('unlockedSkins', JSON.stringify(unlockedSkins));
+  }
+  
+  return newlyUnlocked;
+}
+
+// Preload all parts (including secret skins)
 const skinImages = {};
+const allSkinsData = getAllSkinsData();
 
-for (let key in ALL_SKINS) {
-  const skin = ALL_SKINS[key];
+for (let key in allSkinsData) {
+  const skin = allSkinsData[key];
   skinImages[key] = {
     body: new Image(),
     frontWing: new Image(),
@@ -558,7 +601,7 @@ function updateSkinDisplay() {
   currentSkin = unlockedSkins[currentSkinIndex];
   localStorage.setItem('currentSkin', currentSkin);
 
-  const skinData = ALL_SKINS[currentSkin];
+  const skinData = getAllSkinsData()[currentSkin];
   const display = document.getElementById('current-skin-display');
   const nameDisplay = document.getElementById('skin-name');
 
@@ -1003,7 +1046,7 @@ function updateSkinMenuArrows() {
   }
 }
 
-function showLootBox(onComplete, message = '') {
+function showLootBox(onComplete, message = '', secretSkinKey = null, secretSkinData = null) {
   lootBoxActive = true;
   const container = document.getElementById('game-container');
   if (!container) return;
@@ -1022,10 +1065,19 @@ function showLootBox(onComplete, message = '') {
 
   // Message above box
   const msgDiv = document.createElement('div');
-  msgDiv.style.color = 'gold'; // make text pop
-  msgDiv.style.fontSize = '18px';
+  const isSecretSkin = secretSkinKey && secretSkinData;
+  msgDiv.style.color = isSecretSkin ? '#00aaff' : 'gold'; // blue for secret skins, gold for regular
+  msgDiv.style.fontSize = '16px';
+  msgDiv.style.fontWeight = 'bold';
   msgDiv.style.textAlign = 'center';
-  msgDiv.style.minHeight = '24px';
+  msgDiv.style.textShadow = '0 2px 4px rgba(0, 0, 0, 0.7)';
+  msgDiv.style.padding = '8px 16px';
+  msgDiv.style.background = 'rgba(0, 0, 0, 0.3)';
+  msgDiv.style.borderRadius = '8px';
+  msgDiv.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+  msgDiv.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.3)';
+  msgDiv.style.backdropFilter = 'blur(5px)';
+  msgDiv.style.webkitBackdropFilter = 'blur(5px)';
   msgDiv.style.whiteSpace = 'nowrap'; // prevent text wrapping
   msgDiv.innerText = message;
 
@@ -1034,7 +1086,7 @@ function showLootBox(onComplete, message = '') {
   box.style.width = SKIN_PREVIEW_SIZE + 'px';
   box.style.height = SKIN_PREVIEW_SIZE + 'px';
   box.style.background = '#333';
-  box.style.border = '3px solid gold';
+  box.style.border = isSecretSkin ? '3px solid #00aaff' : '3px solid gold'; // blue border for secret skins
   box.style.borderRadius = '12px';
   box.style.display = 'flex';
   box.style.alignItems = 'center';
@@ -1042,8 +1094,10 @@ function showLootBox(onComplete, message = '') {
   box.style.cursor = 'pointer';
   box.style.fontSize = Math.floor(SKIN_PREVIEW_SIZE * 0.35) + 'px'; // scale emoji (increased from 0.22)
   box.style.color = 'white';
-  box.innerText = '🎁'; // gift icon initially
 
+  // Fix the emoji assignment before appending
+  box.innerText = isSecretSkin ? '⭐' : '🎁'; // star for secret skins, gift for regular
+  
   boxWrapper.appendChild(msgDiv);
   boxWrapper.appendChild(box);
   container.appendChild(boxWrapper);
@@ -1055,16 +1109,27 @@ function showLootBox(onComplete, message = '') {
     boxClicked = true;
     playSound('sparkle'); // Play sparkle sound when loot box is clicked
 
-    // Get locked skins
-    const lockedSkinKeys = Object.keys(ALL_SKINS).filter(key => !unlockedSkins.includes(key));
-    let newSkinKey;
-    if (lockedSkinKeys.length > 0) {
-      newSkinKey = lockedSkinKeys[Math.floor(Math.random() * lockedSkinKeys.length)];
-      const newSkin = ALL_SKINS[newSkinKey];
+    let newSkinKey, newSkin;
+    
+    if (secretSkinKey && secretSkinData) {
+      // This is a secret skin unlock
+      newSkinKey = secretSkinKey;
+      newSkin = secretSkinData;
+      // Secret skin is already unlocked in unlockedSkins by checkSecretSkinUnlocks
+    } else {
+      // Regular loot box - get locked regular skins (not secret skins)
+      const lockedSkinKeys = Object.keys(ALL_SKINS).filter(key => !unlockedSkins.includes(key));
+      if (lockedSkinKeys.length > 0) {
+        newSkinKey = lockedSkinKeys[Math.floor(Math.random() * lockedSkinKeys.length)];
+        newSkin = ALL_SKINS[newSkinKey];
 
-      // Unlock
-      unlockedSkins.push(newSkinKey);
-      localStorage.setItem('unlockedSkins', JSON.stringify(unlockedSkins));
+        // Unlock regular skin
+        unlockedSkins.push(newSkinKey);
+        localStorage.setItem('unlockedSkins', JSON.stringify(unlockedSkins));
+      }
+    }
+    
+    if (newSkinKey && newSkin) {
       updateSkinMenuArrows();
 
       // Set current
@@ -1084,9 +1149,10 @@ function showLootBox(onComplete, message = '') {
       img.style.height = SKIN_PREVIEW_SIZE * 0.9 + 'px';
       box.appendChild(img);
       
-      // Check if this was the last skin to unlock
-      const allSkinKeys = Object.keys(ALL_SKINS);
-      const justUnlockedAll = unlockedSkins.length === allSkinKeys.length && !allSkinsUnlockedShown;
+      // Check if this was the last regular skin to unlock (secret skins don't count)
+      const allRegularSkinKeys = Object.keys(ALL_SKINS);
+      const regularSkinsUnlocked = unlockedSkins.filter(skin => allRegularSkinKeys.includes(skin));
+      const justUnlockedAll = regularSkinsUnlocked.length === allRegularSkinKeys.length && !allSkinsUnlockedShown;
       
       // sparkles
       for (let i = 0; i < 15; i++) spawnTinyProgressParticle();
@@ -1103,7 +1169,7 @@ function showLootBox(onComplete, message = '') {
         }
       }, 1500);
     } else {
-      // All skins unlocked: show rat emoji
+      // No skin to unlock or all skins unlocked: show rat emoji
       msgDiv.innerText = 'All skins unlocked!';
       box.style.background = '#666';
       box.innerText = '🐀';
@@ -1825,15 +1891,50 @@ function startCelebration(scoreData) {
       showCelebrationMessage(rankingMessage, "#FFD700");
       playSound(celebrationSound);
       
-      // Wait for celebration duration, then continue
+      // Wait for celebration duration, then check for secret skins
       setTimeout(() => {
-        endCelebration();
+        checkAndShowSecretSkins(scoreData);
       }, celebrationDuration);
     } else {
-      // Just personal best, continue after victory sound
-      endCelebration();
+      // Just personal best, check for secret skins
+      setTimeout(() => {
+        checkAndShowSecretSkins(scoreData);
+      }, 2000);
     }
   }, 2000); // 2 second minimum for personal best celebration
+}
+
+function checkAndShowSecretSkins(scoreData) {
+  // Hide the congratulatory message first
+  hideCelebrationMessage();
+  
+  const newlyUnlocked = checkSecretSkinUnlocks(scoreData);
+  
+  if (newlyUnlocked.length > 0) {
+    // Wait a moment for the congratulatory message to fade, then show secret skin unlock
+    setTimeout(() => {
+      showSecretSkinUnlock(newlyUnlocked, 0);
+    }, 500);
+  } else {
+    endCelebration();
+  }
+}
+
+function showSecretSkinUnlock(unlockedSkins, index) {
+  if (index >= unlockedSkins.length) {
+    endCelebration();
+    return;
+  }
+  
+  const unlock = unlockedSkins[index];
+  const skinKey = unlock.key;
+  const skin = unlock.skin;
+  
+  // Show special loot box for secret skin
+  showLootBox(() => {
+    // Continue to next secret skin or end
+    showSecretSkinUnlock(unlockedSkins, index + 1);
+  }, skin.unlockMessage, skinKey, skin);
 }
 
 function endCelebration() {
@@ -1938,6 +2039,7 @@ function hideCompletionMessage() {
 
 document.querySelector('#skin-menu #start').addEventListener('click', () => {
   if (lootBoxActive) return; // ignore clicks while loot box is open
+  playSound('flap'); // Play flap sound when starting the game
   hideMenu();  // hide the menu
   reset();     // start the game
 });
