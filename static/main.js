@@ -1482,6 +1482,7 @@ function reset() {
   hideProgressUI(); // <--- hide bar while running
   hideLeaderboardButton(); // hide leaderboard button while playing
   hideMuteButton(); // hide mute button during gameplay
+  hideMenu(); // hide skin selection menu when starting game
 
   // start game loop
   lastTime = 0;
@@ -2184,40 +2185,46 @@ function showFreezeFrame(onContinue) {
   
   document.body.appendChild(message);
   
-  // Click handler to continue
-  function handleContinue() {
+  // Declare event handler functions at top level for proper cleanup
+  function handleScreenInteraction(e) {
+    e.preventDefault();
+    cleanupAndContinue();
+  }
+  
+  function handleKeyPress(e) {
+    if (e.code === 'Space' || e.code === 'Enter') {
+      e.preventDefault();
+      cleanupAndContinue();
+    }
+  }
+  
+  // Centralized cleanup and continue function
+  function cleanupAndContinue() {
+    // Remove all event listeners
+    document.removeEventListener('click', handleScreenInteraction);
+    document.removeEventListener('touchstart', handleScreenInteraction);
+    document.removeEventListener('keydown', handleKeyPress);
+    message.removeEventListener('click', cleanupAndContinue);
+    
+    // Remove DOM elements
     message.remove();
     style.remove();
+    
+    // Continue to next step
     if (onContinue) onContinue();
   }
   
-  // Add click and key event listeners
-  message.addEventListener('click', handleContinue);
+  // Add click listener to message
+  message.addEventListener('click', cleanupAndContinue);
   
-  // Also allow clicking/tapping anywhere on the screen to continue
-  function handleScreenInteraction(e) {
-    e.preventDefault();
-    document.removeEventListener('click', handleScreenInteraction);
-    document.removeEventListener('touchstart', handleScreenInteraction);
-    handleContinue();
-  }
+  // Add keyboard listener immediately
+  document.addEventListener('keydown', handleKeyPress);
   
-  // Add a small delay then enable screen interaction to avoid immediate triggering
+  // Add screen interaction listeners with delay to avoid immediate triggering
   setTimeout(() => {
     document.addEventListener('click', handleScreenInteraction);
     document.addEventListener('touchstart', handleScreenInteraction, { passive: false });
   }, 200);
-  
-  // Also allow spacebar or enter to continue
-  function handleKeyPress(e) {
-    if (e.code === 'Space' || e.code === 'Enter') {
-      e.preventDefault();
-      document.removeEventListener('keydown', handleKeyPress);
-      handleContinue();
-    }
-  }
-  
-  document.addEventListener('keydown', handleKeyPress);
 }
 
 function startCelebration(scoreData) {
