@@ -2142,8 +2142,80 @@ function continueEndGame(prevTotal) {
   showLeaderboardButton();
   showMuteButton(); // show mute button when game ends
   updateProgressDisplay(true, score, prevTotal, () => {
-    showMenu();
+    showFreezeFrame(() => {
+      showMenu();
+    });
   });
+}
+
+function showFreezeFrame(onContinue) {
+  // Create subtle click to continue message without overlay
+  const message = document.createElement('div');
+  message.id = 'freeze-frame-message';
+  message.style.position = 'fixed';
+  message.style.bottom = '20px';
+  message.style.left = '50%';
+  message.style.transform = 'translateX(-50%)';
+  message.style.color = 'white';
+  message.style.fontSize = '18px';
+  message.style.fontWeight = 'bold';
+  message.style.textAlign = 'center';
+  message.style.textShadow = '2px 2px 4px rgba(0,0,0,0.8)';
+  message.style.background = 'rgba(0, 0, 0, 0.6)';
+  message.style.padding = '12px 20px';
+  message.style.borderRadius = '8px';
+  message.style.border = '2px solid rgba(255, 255, 255, 0.3)';
+  message.style.zIndex = '10002';
+  message.style.cursor = 'pointer';
+  message.style.animation = 'pulse 2s infinite';
+  message.textContent = 'Press to continue...';
+  
+  // Add pulsing animation
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes pulse {
+      0%, 100% { opacity: 0.7; }
+      50% { opacity: 1; }
+    }
+  `;
+  document.head.appendChild(style);
+  
+  document.body.appendChild(message);
+  
+  // Click handler to continue
+  function handleContinue() {
+    message.remove();
+    style.remove();
+    if (onContinue) onContinue();
+  }
+  
+  // Add click and key event listeners
+  message.addEventListener('click', handleContinue);
+  
+  // Also allow clicking/tapping anywhere on the screen to continue
+  function handleScreenInteraction(e) {
+    e.preventDefault();
+    document.removeEventListener('click', handleScreenInteraction);
+    document.removeEventListener('touchstart', handleScreenInteraction);
+    handleContinue();
+  }
+  
+  // Add a small delay then enable screen interaction to avoid immediate triggering
+  setTimeout(() => {
+    document.addEventListener('click', handleScreenInteraction);
+    document.addEventListener('touchstart', handleScreenInteraction, { passive: false });
+  }, 200);
+  
+  // Also allow spacebar or enter to continue
+  function handleKeyPress(e) {
+    if (e.code === 'Space' || e.code === 'Enter') {
+      e.preventDefault();
+      document.removeEventListener('keydown', handleKeyPress);
+      handleContinue();
+    }
+  }
+  
+  document.addEventListener('keydown', handleKeyPress);
 }
 
 function startCelebration(scoreData) {
