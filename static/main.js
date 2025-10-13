@@ -17,7 +17,7 @@ function updateCanvasSize() {
   const rect = canvas.getBoundingClientRect();
   
   // Canvas internal resolution is always fixed at high resolution
-  canvas.width = GAME_WIDTH;
+  canvas.width = GAME_WIDTH;  // This clears the canvas!
   canvas.height = GAME_HEIGHT;
   
   // For canvas sizing, recalculate based on current viewport to avoid keyboard issues
@@ -37,6 +37,11 @@ function updateCanvasSize() {
   canvas.style.width = displayWidth + 'px';
   canvas.style.height = displayHeight + 'px';
   
+  // Auto-redraw background if we're in menu mode (not running the game)
+  if (typeof running !== 'undefined' && !running && typeof drawStaticBackground === 'function') {
+    setTimeout(() => drawStaticBackground(), 0);
+  }
+  
   return { width: displayWidth, height: displayHeight };
 }
 
@@ -48,8 +53,6 @@ canvas.height = GAME_HEIGHT;
 // Enable high-quality rendering for crisp graphics
 ctx.imageSmoothingEnabled = true;
 ctx.imageSmoothingQuality = 'high';
-
-// Additional canvas optimizations for mobile
 ctx.textBaseline = 'top';
 ctx.textAlign = 'left';
 
@@ -125,61 +128,138 @@ updateSkinMenuArrows();
 let currentSkin = localStorage.getItem('currentSkin') || 'Classic';
 let currentSkinIndex = unlockedSkins.indexOf(currentSkin) || 0;
 
-// --- AUDIO SYSTEM ---
-const audio = {
-  music: new Audio('static/assets/audio/music.wav'),
-  flap: new Audio('static/assets/audio/flap.wav'),
-  death: new Audio('static/assets/audio/death.wav'),
-  sparkle: new Audio('static/assets/audio/sparkle.wav'),
-  victory: new Audio('static/assets/audio/victory.wav'),
-  leaderboard: new Audio('static/assets/audio/leaderboard.wav'),
-  grandchampion: new Audio('static/assets/audio/grandchampion.wav')
+// --- WEB AUDIO API SYSTEM ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+const sounds = {};
+const soundVolumes = {
+  music: 0.05,    
+  flap: 0.15,     
+  death: 0.8,
+  sparkle: 0.4,
+  victory: 0.45,
+  leaderboard: 0.6,
+  grandchampion: 0.8
 };
 
-// Configure audio properties
-audio.music.loop = true; // Music should loop continuously
-audio.music.volume = 0.05; // Lower volume for background music
-audio.flap.volume = 0.05;
-audio.death.volume = 0.4;
-audio.sparkle.volume = 0.4;
-audio.victory.volume = 0.6;
-audio.leaderboard.volume = 0.6;
-audio.grandchampion.volume = 0.8;
+// Music handling - still use HTML5 Audio for background music loop
+const musicAudio = new Audio('static/assets/audio/music.wav');
+musicAudio.loop = true;
+musicAudio.volume = soundVolumes.music;
 
 // Mute state
 let audioMuted = localStorage.getItem('audioMuted') === 'true' || false;
 
-// Audio management functions
-function playSound(soundName) {
-  if (audioMuted) return; // Skip if muted
-  const sound = audio[soundName];
-  if (sound) {
-    // Ensure sound doesn't loop for single plays
-    sound.loop = false;
-    // For flap and sparkle sound, reset to beginning if already playing to avoid stacking
-    if (soundName === 'flap' || soundName === 'sparkle') {
-      sound.currentTime = 0;
-    }
-    sound.play().catch(err => console.log(`Audio play failed for ${soundName}:`, err));
+// Load sound into Web Audio API
+async function loadSound(name, url) {
+  try {
+    const res = await fetch(url);
+    const arrayBuffer = await res.arrayBuffer();
+    sounds[name] = await audioCtx.decodeAudioData(arrayBuffer);
+    console.log(`Loaded sound: ${name}`);
+  } catch (err) {
+    console.log(`Failed to load sound ${name}:`, err);
   }
 }
+
+// Initialize all sounds
+async function initAudio() {
+  const soundFiles = [
+    ['flap', 'static/assets/audio/flap.wav'],
+    ['death', 'static/assets/audio/death.wav'],
+    ['sparkle', 'static/assets/audio/sparkle.wav'],
+    ['victory', 'static/assets/audio/victory.wav'],
+    ['leaderboard', 'static/assets/audio/leaderboard.wav'],
+    ['grandchampion', 'static/assets/audio/grandchampion.wav']
+  ];
+  
+  // Load all sounds in parallel
+  await Promise.all(soundFiles.map(([name, url]) => loadSound(name, url)));
+  console.log('All sounds loaded');
+}
+
+// Play sound using Web Audio API
+function playSound(soundName) {
+  if (audioMuted) return; // Skip if muted
+  
+  // Special handling for music
+  if (soundName === 'music') {
+    musicAudio.play().catch(err => console.log('Music play failed:', err));
+    return;
+  }
+  
+  // Web Audio API for all other sounds
+  if (!sounds[soundName]) {
+    console.log(`Sound ${soundName} not loaded yet`);
+    return;
+  }
+  
+  try {
+    // Resume audio context if needed (required for user interaction)
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+    
+    // Create buffer source and gain node for volume control
+    const source = audioCtx.createBufferSource();
+    const gainNode = audioCtx.createGain();
+    
+    source.buffer = sounds[soundName];
+    gainNode.gain.value = soundVolumes[soundName] || 0.5;
+    
+    // Connect: source -> gain -> destination
+    source.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    
+    // Play immediately - no lag!
+    source.start(0);
+  } catch (err) {
+    console.log(`Web Audio play failed for ${soundName}:`, err);
+  }
+}
+
+// Sparkle loop control
+let sparkleLoopInterval = null;
 
 function loopSound(soundName) {
   if (audioMuted) return; // Skip if muted
-  const sound = audio[soundName];
-  if (sound) {
-    sound.loop = true;
-    sound.play().catch(err => console.log(`Audio loop failed for ${soundName}:`, err));
+  
+  if (soundName === 'music') {
+    musicAudio.loop = true;
+    musicAudio.play().catch(err => console.log('Music loop failed:', err));
+  } else if (soundName === 'sparkle') {
+    // Start sparkle loop using Web Audio API
+    if (!sparkleLoopInterval) {
+      playSound('sparkle'); // Play immediately
+      sparkleLoopInterval = setInterval(() => {
+        if (!audioMuted) {
+          playSound('sparkle');
+        }
+      }, 600); // Play every 600ms for a nice sparkle effect
+    }
   }
 }
 
+// Initialize audio system
+initAudio();
+
 function stopSound(soundName) {
-  const sound = audio[soundName];
-  if (sound) {
-    sound.pause();
-    sound.currentTime = 0;
-    sound.loop = false; // Reset loop flag to prevent state issues
+  // For music, stop the HTML5 audio element
+  if (soundName === 'music') {
+    musicAudio.pause();
+    musicAudio.currentTime = 0;
+    return;
   }
+  
+  // For sparkle loop, clear the interval
+  if (soundName === 'sparkle' && sparkleLoopInterval) {
+    clearInterval(sparkleLoopInterval);
+    sparkleLoopInterval = null;
+    console.log('Sparkle loop stopped');
+    return;
+  }
+  
+  // For other Web Audio API sounds, they auto-cleanup
+  console.log(`Stop requested for ${soundName} - Web Audio sources auto-cleanup`);
 }
 
 // Mute/unmute functionality
@@ -188,13 +268,11 @@ function toggleMute() {
   localStorage.setItem('audioMuted', audioMuted.toString());
   
   if (audioMuted) {
-    // Stop all currently playing sounds when muting
-    Object.keys(audio).forEach(soundName => {
-      stopSound(soundName);
-    });
+    // Stop music when muting
+    musicAudio.pause();
   } else {
     // Resume background music when unmuting
-    audio.music.play().catch(err => console.log('Music resume failed:', err));
+    musicAudio.play().catch(err => console.log('Music resume failed:', err));
   }
   
   updateMuteButton();
@@ -219,7 +297,7 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Try to start music - modern browsers may block autoplay until user interaction
   if (!audioMuted) {
-    audio.music.play().catch(err => {
+    musicAudio.play().catch(err => {
       console.log('Background music blocked by browser - will start on first user interaction');
     });
   }
@@ -229,7 +307,7 @@ document.addEventListener('DOMContentLoaded', () => {
 let musicStarted = false;
 document.addEventListener('click', () => {
   if (!musicStarted && !audioMuted) {
-    audio.music.play().catch(err => console.log('Music start failed:', err));
+    musicAudio.play().catch(err => console.log('Music start failed:', err));
     musicStarted = true;
   }
 }, { once: true });
@@ -325,6 +403,9 @@ function showWelcomeScreen() {
       ctx.textBaseline = 'top';
       ctx.textAlign = 'left';
       
+      // Redraw background since updateCanvasSize() clears the canvas
+      drawStaticBackground();
+      
       // Draw background now that canvas is properly configured
       drawStaticBackground();
     });
@@ -414,6 +495,11 @@ function handleLogin() {
       
       // Draw background now that canvas is properly configured
       drawStaticBackground();
+      
+      // Additional fallback since this is where the issue occurs on mobile
+      setTimeout(() => {
+        drawStaticBackground();
+      }, 50);
     }, 300); // Additional delay for keyboard retraction
   }, 100); // Initial delay for overlay removal
 }
@@ -881,17 +967,8 @@ function showMenu() {
   // Show leaderboard button now that player can interact
   showLeaderboardButton();
   
-  // Multiple background drawing attempts to handle various browser behaviors
-  drawStaticBackground(); // Immediate attempt
-  
-  // Backup attempts with different timing strategies
-  requestAnimationFrame(() => {
-    drawStaticBackground();
-  });
-  
-  setTimeout(() => {
-    drawStaticBackground();
-  }, 10);
+  // Draw background
+  drawStaticBackground();
 }
 
 function hideMenu() {
@@ -1466,16 +1543,9 @@ function reset() {
   nextPipeDelay = BASE_DELAY;
   barsGlowing = false;
   
-  // Reset audio states to prevent carryover issues from previous game (except music)
-  Object.entries(audio).forEach(([soundName, sound]) => {
-    if (soundName !== 'music') { // Keep music playing between games
-      if (sound.currentTime > 0 && !sound.paused) {
-        sound.pause();
-      }
-      sound.currentTime = 0;
-      sound.loop = false; // Reset loop flag
-    }
-  });
+  // Reset audio states to prevent carryover issues from previous game
+  // Web Audio API sounds auto-cleanup, just ensure music keeps playing
+  // No reset needed for Web Audio API sounds as they're one-shot
   
   running = true;
 
@@ -2082,12 +2152,13 @@ function draw() {
 }
 
 function loop(timestamp) {
-  if (!lastTime) lastTime = timestamp;  
-  const dt = (timestamp - lastTime) / 16.67; // normalize so dt=1 ~ 60fps
+  if (!lastTime) lastTime = timestamp;
+  const dt = (timestamp - lastTime) / 16.67;
   lastTime = timestamp;
+  
   update(dt);
   draw();
-
+  
   if (running) {
     requestAnimationFrame(loop);
   }
@@ -2452,15 +2523,15 @@ document.addEventListener('keydown', (e) => {
   } 
 });
 
-// iOS Audio Context fix - resume audio context on first user interaction
+// Web Audio Context fix - resume audio context on first user interaction
 let audioContextResumed = false;
 function resumeAudioContext() {
-  if (!audioContextResumed && typeof webkitAudioContext !== 'undefined') {
-    // Try to resume audio context for iOS
-    if (audio.music.readyState >= 2) {  // HAVE_ENOUGH_DATA
-      audio.music.play().then(() => {
-        audio.music.pause();
+  if (!audioContextResumed) {
+    // Resume Web Audio Context for mobile browsers
+    if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume().then(() => {
         audioContextResumed = true;
+        console.log('Web Audio Context resumed');
       }).catch(() => {});
     }
   }
