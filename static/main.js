@@ -2519,7 +2519,18 @@ canvas.addEventListener('click', handleFlap);
 document.addEventListener('keydown', (e) => { 
   if (e.code === 'Space') { 
     e.preventDefault(); 
-    if (running) flap();
+    if (running) {
+      // During game: make the bird flap
+      flap();
+    } else {
+      // In menu: start the game (same as clicking Play button)
+      const menu = document.getElementById('skin-menu');
+      if (menu && menu.style.display !== 'none' && !lootBoxActive) {
+        playSound('flap'); // Play flap sound when starting the game
+        hideMenu();  // hide the menu
+        reset();     // start the game
+      }
+    }
   } 
 });
 
