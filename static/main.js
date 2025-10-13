@@ -4,8 +4,8 @@ const ctx = canvas.getContext('2d');
 
 // === FIXED HIGH-RESOLUTION RENDERING SYSTEM ===
 // Game renders at fixed high resolution, CSS handles scaling to display size
-const GAME_WIDTH = 2400;  // Fixed high-resolution width
-const GAME_HEIGHT = 3600; // Fixed high-resolution height (maintains 2:3 aspect ratio)
+const GAME_WIDTH = 1200;  // Fixed high-resolution width
+const GAME_HEIGHT = 1800; // Fixed high-resolution height (maintains 2:3 aspect ratio)
 
 function updateCanvasSize() {
   // Use visual viewport if available (better for mobile with virtual keyboards)
