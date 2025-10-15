@@ -99,14 +99,25 @@ function ensureCRTCanvas(){
 
 function resizeCRT(){
   if(!crtCanvas || !gl) return;
-  const rect = canvas.getBoundingClientRect();
-  // match CSS size for overlay
-  crtCanvas.style.width = rect.width + 'px';
-  crtCanvas.style.height = rect.height + 'px';
-  // match device resolution backing store
-  const dpr = window.devicePixelRatio || 1;
-  crtCanvas.width = Math.floor(rect.width * dpr);
-  crtCanvas.height = Math.floor(rect.height * dpr);
+  // Match CSS size exactly to the source canvas CSS size
+  const styleW = canvas.style.width;
+  const styleH = canvas.style.height;
+  if (styleW && styleH) {
+    crtCanvas.style.width = styleW;
+    crtCanvas.style.height = styleH;
+  } else {
+    const rect = canvas.getBoundingClientRect();
+    crtCanvas.style.width = rect.width + 'px';
+    crtCanvas.style.height = rect.height + 'px';
+  }
+  // Align overlay position with the source canvas within the same parent
+  crtCanvas.style.left = canvas.offsetLeft + 'px';
+  crtCanvas.style.top = canvas.offsetTop + 'px';
+
+  // Match backing store resolution exactly to the source canvas resolution
+  // This avoids resampling differences and subtle size drift on toggles
+  crtCanvas.width = canvas.width;
+  crtCanvas.height = canvas.height;
   gl.viewport(0, 0, crtCanvas.width, crtCanvas.height);
 }
 
