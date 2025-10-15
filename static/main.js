@@ -2,6 +2,230 @@
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
+// === CRT FILTER SYSTEM ===
+let crtEnabled = false;
+let crtCanvas, gl, crtProgram, crtTexture, positionBuffer;
+
+// === CANVAS UI STATE ===
+let canvasProgressBar = { visible: false, progress: 0, message: '' };
+let canvasCelebrationMessage = { visible: false, text: '', color: '#fff', startTime: 0 };
+let canvasLootBox = { visible: false, message: '', isSecret: false, onComplete: null };
+
+// WebGL Shaders for CRT effect
+const vertexShaderSource = `
+attribute vec2 a_position;
+varying vec2 v_uv;
+
+void main() {
+  v_uv = a_position * 0.5 + 0.5;
+  v_uv.y = 1.0 - v_uv.y; // Flip Y coordinate to fix upside-down texture
+  gl_Position = vec4(a_position, 0, 1);
+}
+`;
+
+const fragmentShaderSource = `
+precision mediump float;
+
+uniform sampler2D u_texture;
+uniform vec2 u_resolution;
+uniform float u_time;
+
+varying vec2 v_uv;
+
+void main() {
+    vec2 uv = v_uv;
+
+    // --- barrel distortion ---
+    vec2 centered = uv - 0.5;
+    float r2 = dot(centered, centered);
+    centered *= 1.0 + 0.08 * r2; // further reduced distortion factor
+    uv = centered + 0.5;
+
+    // --- chromatic aberration ---
+    float chroma = 0.003; // further reduced chromatic aberration
+    vec3 color;
+    color.r = texture2D(u_texture, uv + vec2(chroma,0)).r;
+    color.g = texture2D(u_texture, uv).g;
+    color.b = texture2D(u_texture, uv - vec2(chroma,0)).b;
+
+    // --- scanlines ---
+    float scanline = sin(uv.y * u_resolution.y * 1.5) * 0.02;
+    color -= scanline;
+
+    // --- vignette ---
+    float dist = distance(uv, vec2(0.5));
+    color *= smoothstep(0.9, 0.6, dist);
+
+    // --- flicker / noise ---
+    float noise = (fract(sin(dot(uv* u_resolution.xy , vec2(12.9898,78.233))) * 43758.5453) - 0.5) * 0.01;
+    float flicker = 0.008 * sin(u_time * 8.0);
+    color += noise + flicker;
+
+    gl_FragColor = vec4(color,1.0);
+}
+`;
+
+function createShader(gl, type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      console.error(gl.getShaderInfoLog(shader));
+  }
+  return shader;
+}
+
+function createProgram(gl, vsSource, fsSource) {
+  const vs = createShader(gl, gl.VERTEX_SHADER, vsSource);
+  const fs = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
+  const program = gl.createProgram();
+  gl.attachShader(program, vs);
+  gl.attachShader(program, fs);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      console.error(gl.getProgramInfoLog(program));
+  }
+  return program;
+}
+
+function resizeCRT() {
+  if (!crtCanvas || !gl) return;
+  
+  // Get exact canvas positioning and size
+  const rect = canvas.getBoundingClientRect();
+  const canvasStyle = window.getComputedStyle(canvas);
+  const width = parseInt(canvasStyle.width);
+  const height = parseInt(canvasStyle.height);
+  
+  // Only resize if dimensions actually changed
+  if (crtCanvas.width !== width || crtCanvas.height !== height) {
+    crtCanvas.width = width;
+    crtCanvas.height = height;
+    crtCanvas.style.width = width + 'px';
+    crtCanvas.style.height = height + 'px';
+    
+    gl.viewport(0, 0, width, height);
+  }
+  
+  // Ensure exact positioning on top of game canvas
+  crtCanvas.style.left = rect.left + 'px';
+  crtCanvas.style.top = rect.top + 'px';
+}
+
+function initCRTFilter() {
+  try {
+    // Create WebGL CRT overlay canvas
+    crtCanvas = document.createElement('canvas');
+    crtCanvas.id = 'crt-webgl';
+    crtCanvas.style.position = 'fixed';
+    crtCanvas.style.left = '0';
+    crtCanvas.style.top = '0';
+    crtCanvas.style.pointerEvents = 'none';
+    crtCanvas.style.zIndex = '10000';
+    
+    gl = crtCanvas.getContext('webgl');
+    if (!gl) {
+      console.warn('WebGL not supported, CRT filter disabled');
+      return false;
+    }
+    
+    // Setup resize handler
+    window.addEventListener('resize', resizeCRT);
+    resizeCRT();
+    
+    // Create shader program
+    crtProgram = createProgram(gl, vertexShaderSource, fragmentShaderSource);
+    
+    // Fullscreen quad
+    positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -1,-1, 1,-1, -1,1,
+      -1,1, 1,-1, 1,1
+    ]), gl.STATIC_DRAW);
+    
+    // Texture setup
+    crtTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, crtTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    
+    return true;
+  } catch (error) {
+    console.warn('CRT filter initialization failed:', error);
+    return false;
+  }
+}
+
+function drawCRTWebGL(time) {
+  if (!crtEnabled || !gl || !crtProgram) return;
+  
+  // Ensure CRT canvas stays synchronized with game canvas
+  resizeCRT();
+  
+  gl.bindTexture(gl.TEXTURE_2D, crtTexture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+
+  gl.useProgram(crtProgram);
+
+  // bind position
+  const posLoc = gl.getAttribLocation(crtProgram, 'a_position');
+  gl.enableVertexAttribArray(posLoc);
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+  // uniforms
+  gl.uniform1f(gl.getUniformLocation(crtProgram, 'u_time'), time * 0.001);
+  gl.uniform2f(gl.getUniformLocation(crtProgram, 'u_resolution'), crtCanvas.width, crtCanvas.height);
+  gl.uniform1i(gl.getUniformLocation(crtProgram, 'u_texture'), 0);
+
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+}
+
+function applyStaticCRTFilter() {
+  // Helper function to apply CRT filter to static content
+  if (crtEnabled) {
+    // Use setTimeout to ensure canvas has finished drawing
+    setTimeout(() => {
+      drawCRTWebGL(performance.now());
+    }, 0);
+  }
+}
+
+// Enhanced drawCanvasUI wrapper that applies CRT filter
+function drawCanvasUIWithCRT() {
+  drawCanvasUI();
+  applyStaticCRTFilter();
+}
+
+function toggleCRTFilter() {
+  crtEnabled = !crtEnabled;
+  
+  if (crtEnabled) {
+    if (!crtCanvas) {
+      if (!initCRTFilter()) {
+        crtEnabled = false;
+        return false;
+      }
+    }
+    
+    // Insert WebGL canvas after the 2D canvas
+    canvas.parentNode.insertBefore(crtCanvas, canvas.nextSibling);
+    crtCanvas.style.display = 'block';
+    
+    // Apply filter to current content
+    applyStaticCRTFilter();
+  } else {
+    if (crtCanvas) {
+      crtCanvas.style.display = 'none';
+    }
+  }
+  
+  return crtEnabled;
+}
+
 // === FIXED HIGH-RESOLUTION RENDERING SYSTEM ===
 // Game renders at fixed high resolution, CSS handles scaling to display size
 const GAME_WIDTH = 1200;  // Fixed high-resolution width
@@ -39,7 +263,11 @@ function updateCanvasSize() {
   
   // Auto-redraw background if we're in menu mode (not running the game)
   if (typeof running !== 'undefined' && !running && typeof drawStaticBackground === 'function') {
-    setTimeout(() => drawStaticBackground(), 0);
+    setTimeout(() => {
+      drawStaticBackground();
+      drawCanvasUI();
+      applyStaticCRTFilter();
+    }, 0);
   }
   
   return { width: displayWidth, height: displayHeight };
@@ -127,6 +355,16 @@ updateSkinMenuArrows();
 
 let currentSkin = localStorage.getItem('currentSkin') || 'Classic';
 let currentSkinIndex = unlockedSkins.indexOf(currentSkin) || 0;
+
+// Canvas skin preview animation variables
+let skinPreviewAnimation = {
+  active: false,
+  startTime: 0,
+  duration: 300, // 300ms total animation
+  jumpHeight: 15 // pixels to jump up
+};
+
+
 
 // --- WEB AUDIO API SYSTEM ---
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -408,6 +646,11 @@ function showWelcomeScreen() {
       
       // Draw background now that canvas is properly configured
       drawStaticBackground();
+      
+      // Explicitly draw canvas UI after login completion
+      setTimeout(() => {
+        drawCanvasUI();
+      }, 100);
     });
   });
   
@@ -499,6 +742,9 @@ function handleLogin() {
       // Additional fallback since this is where the issue occurs on mobile
       setTimeout(() => {
         drawStaticBackground();
+        
+        // Explicitly draw canvas UI after login completion
+        drawCanvasUI();
       }, 50);
     }, 300); // Additional delay for keyboard retraction
   }, 100); // Initial delay for overlay removal
@@ -640,6 +886,7 @@ const CUMULATIVE_SCORE_STEP = 250;           // every 200 cumulative points
 // --- SKIN SYSTEM ---
 // Define available skins (add more as needed)
 let lootBoxActive = false;
+let postGameSequenceActive = false;
 let allSkinsUnlockedShown = localStorage.getItem('allSkinsUnlockedShown') === 'true' || false;
 // Skin preview rendering system - high resolution rendering with CSS scaling
 const SKIN_PREVIEW_RENDER_SIZE = 480; // High resolution internal rendering (4x scale)
@@ -922,25 +1169,66 @@ function updateSkinDisplay() {
     img.style.imageRendering = 'auto';
     display.appendChild(img);
   }
+  
+  // Redraw canvas background and UI if in menu mode
+  if (!running) {
+    drawStaticBackground();
+    drawCanvasUI();
+  }
 }
 
 function animateSkinPreview() {
-  const display = document.getElementById('current-skin-display');
-  if (!display) return;
+  // Start canvas-based skin preview animation
+  skinPreviewAnimation.active = true;
+  skinPreviewAnimation.startTime = performance.now();
   
-  // Create jump animation using CSS transform
-  display.style.transition = 'transform 0.3s ease-out';
-  display.style.transform = 'translateY(-15px)';
+  // Start animation loop if not already running
+  if (!window.skinAnimationId) {
+    animateSkinPreviewLoop();
+  }
+}
+
+function animateSkinPreviewLoop() {
+  const currentTime = performance.now();
+  const elapsed = currentTime - skinPreviewAnimation.startTime;
   
-  // Return to original position
-  setTimeout(() => {
-    display.style.transform = 'translateY(0px)';
-  }, 150);
+  if (skinPreviewAnimation.active && elapsed < skinPreviewAnimation.duration) {
+    // Continue animation
+    drawStaticBackground();
+    drawCanvasUI();
+    applyStaticCRTFilter(); // Apply CRT filter during animation
+    
+    window.skinAnimationId = requestAnimationFrame(animateSkinPreviewLoop);
+  } else {
+    // Animation finished
+    skinPreviewAnimation.active = false;
+    window.skinAnimationId = null;
+    
+    // Final redraw to ensure clean state
+    drawStaticBackground();
+    drawCanvasUI();
+  }
+}
+
+function getSkinPreviewAnimationOffset() {
+  if (!skinPreviewAnimation.active) return 0;
   
-  // Clean up transition after animation
-  setTimeout(() => {
-    display.style.transition = '';
-  }, 300);
+  const elapsed = performance.now() - skinPreviewAnimation.startTime;
+  const progress = Math.min(elapsed / skinPreviewAnimation.duration, 1);
+  
+  // Eased jump animation: up quickly, then down
+  let animationValue;
+  if (progress < 0.5) {
+    // First half: jump up (ease-out)
+    const t = progress * 2;
+    animationValue = skinPreviewAnimation.jumpHeight * (1 - (1 - t) * (1 - t));
+  } else {
+    // Second half: fall down (ease-in)
+    const t = (progress - 0.5) * 2;
+    animationValue = skinPreviewAnimation.jumpHeight * (1 - t * t);
+  }
+  
+  return -animationValue; // Negative because we're moving up
 }
 
 // switch left
@@ -960,8 +1248,9 @@ document.getElementById('skin-right').addEventListener('click', () => {
 });
 
 function showMenu() {
+  postGameSequenceActive = false; // Post-game sequence complete, allow skin menu
   const menu = document.getElementById('skin-menu');
-  if (menu) menu.style.display = 'block';
+  if (menu) menu.style.display = 'block'; // Keep for state detection
   updateSkinDisplay();
   
   // Show leaderboard button now that player can interact
@@ -969,6 +1258,9 @@ function showMenu() {
   
   // Draw background
   drawStaticBackground();
+  
+  // Draw canvas UI elements (leaderboard button and skin menu)
+  drawCanvasUI();
 }
 
 function hideMenu() {
@@ -977,173 +1269,42 @@ function hideMenu() {
 }
 
 window.addEventListener('load', () => {
+  // Initialize CRT filter system
+  initCRTFilter();
+  
   showMenu();  // show the skin selection menu at the very start
 });
 
 // --- PROGRESS BAR UI (safe, non-breaking) ---
-let progressContainer, progressBar, progressLabel;
+// Old HTML progress bar variables removed - now using canvas-based UI
 
 function createProgressUI() {
-  const wrapper = document.createElement('div');
-  wrapper.id = 'progress-wrapper';
-  wrapper.style.display = 'flex';
-  wrapper.style.flexDirection = 'column';
-  wrapper.style.alignItems = 'center';
-  wrapper.style.gap = '6px';
-  wrapper.style.fontFamily = 'sans-serif';
-  wrapper.style.zIndex = '999';
-  wrapper.style.position = 'absolute';
-  wrapper.style.marginTop = '80px'; 
-
-
-  // progress bar container
-  progressContainer = document.createElement('div');
-  progressContainer.style.width = '200px';
-  progressContainer.style.height = '20px';
-  progressContainer.style.border = '1px solid #000';
-  progressContainer.style.background = '#ddd';
-  progressContainer.style.borderRadius = '4px';
-  progressContainer.style.overflow = 'hidden';
-
-  // fill bar
-  progressBar = document.createElement('div');
-  progressBar.style.height = '100%';
-  progressBar.style.width = '0%';
-  progressBar.style.background = '#00aaff'; // blue instead of green
-  progressBar.style.transition = 'width 300ms linear';
-
-  // label
-  progressLabel = document.createElement('div');
-  progressLabel.style.marginTop = '4px';
-  progressLabel.style.textAlign = 'center';
-  progressLabel.style.width = '100%';
-
-  progressContainer.appendChild(progressBar);
-  wrapper.appendChild(progressContainer);
-  wrapper.appendChild(progressLabel);
-
-  document.body.appendChild(wrapper);
-
-  // function to update position relative to canvas
-  function updateProgressBarPosition() {
-    const rect = canvas.getBoundingClientRect();
-    // Use display-relative offset instead of internal canvas resolution
-    const displayOffset = rect.height * 0.02; // 2% of display height
-    wrapper.style.top = rect.top + displayOffset + 'px';
-    wrapper.style.left = rect.left + rect.width / 2 + 'px';
-    wrapper.style.transform = 'translateX(-50%)';
-  }
-
-  // run initially and whenever window resizes
-  updateProgressBarPosition();
-  window.addEventListener('resize', updateProgressBarPosition);
+  // Canvas-based progress bar - no HTML elements needed
+  canvasProgressBar.visible = true;
+  canvasProgressBar.progress = 0;
+  canvasProgressBar.message = 'Submitting score...';
 }
 
-// ensure DOM readiness before creating UI
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    createProgressUI();
-    hideProgressUI(); // start hidden until game ends
-  });
-} else {
-  createProgressUI();
-  hideProgressUI(); // start hidden until game ends
-}
+// Canvas-based progress UI - no DOM setup needed
 
 function triggerBarFlash(onComplete) {
-  if (!progressContainer) return;
-
-  // Save original background
-  const originalBg = progressContainer.style.background;
-
-  // Flash the container background
-  progressContainer.style.transition = 'background 0.3s';
-  progressContainer.style.background = 'gold';
-
-  setTimeout(() => {
-    // Revert to original background (gray or whatever you have)
-    progressContainer.style.background = originalBg || '#555';
-    if (onComplete) onComplete();
-  }, 800); // duration of flash
+  // Canvas-based flash effect - could add a flash animation to the canvas progress bar
+  // For now, just call the completion callback
+  if (onComplete) onComplete();
 }
 
 
-// ---------------------------
-// Small particles around the bar while it's filling
-// Spawns a single small particle from the middle of the bar outward
-// ---------------------------
-function spawnTinyProgressParticle() {
-  if (!progressContainer) return;
-  const rect = progressContainer.getBoundingClientRect();
-  const x = rect.left + (Math.random() * rect.width); // random x along the bar
-  const y = rect.top + rect.height/2 + (Math.random() * 10 - 5);
+// Canvas-based progress particles (removed HTML version)
 
-  const p = document.createElement('div');
-  p.style.position = 'absolute';
-  p.style.left = x + 'px';
-  p.style.top = y + 'px';
-  p.style.width = '6px';
-  p.style.height = '6px';
-  p.style.pointerEvents = 'none';
-  p.style.borderRadius = '50%';
-  p.style.background = 'white';
-  p.style.opacity = '1';
-  p.style.transform = 'translate(-50%, -50%)';
-  p.style.zIndex = '10000';
-
-  document.body.appendChild(p);
-
-  const angle = Math.random() * Math.PI * 2;
-  const distance = 20 + Math.random() * 30;
-  const dx = Math.cos(angle) * distance;
-  const dy = Math.sin(angle) * distance;
-
-  p.animate(
-    [
-      { transform: 'translate(0,0)', opacity: 1 },
-      { transform: `translate(${dx}px, ${dy}px)`, opacity: 0 }
-    ],
-    { duration: 500 + Math.random() * 300, easing: 'cubic-bezier(.1,.9,.2,1)' }
-  ).onfinish = () => p.remove();
-}
-
-// ---------------------------
-// Burst used when crossing a cumulative milestone (100, 200, ...)
-// ---------------------------
+// Canvas-based progress burst effect
 function spawnProgressBurstAtBar() {
-  if (!progressContainer) return;
-  const rect = progressContainer.getBoundingClientRect();
-  const cx = rect.left + rect.width / 2;
-  const cy = rect.top + rect.height / 2;
+  // Canvas-based burst effect - could add particle effects to canvas
+  // For now, this is a placeholder function
+}
 
-  for (let i = 0; i < 14; i++) {
-    const p = document.createElement('div');
-    p.style.position = 'absolute';
-    p.style.left = cx + 'px';
-    p.style.top = cy + 'px';
-    p.style.width = '8px';
-    p.style.height = '8px';
-    p.style.pointerEvents = 'none';
-    p.style.borderRadius = '50%';
-    p.style.background = 'gold';
-    p.style.opacity = '1';
-    p.style.transform = 'translate(-50%, -50%)';
-    p.style.zIndex = '10000';
-    document.body.appendChild(p);
-
-    const angle = Math.random() * Math.PI * 2;
-    const dist = 30 + Math.random() * 40;
-    const dx = Math.cos(angle) * dist;
-    const dy = Math.sin(angle) * dist;
-
-    p.animate(
-      [
-        { transform: 'translate(0,0)', opacity: 1 },
-        { transform: `translate(${dx}px, ${dy}px)`, opacity: 0 }
-      ],
-      { duration: 650 + Math.random() * 300, easing: 'cubic-bezier(.1,.9,.2,1)' }
-    ).onfinish = () => p.remove();
-  }
+function spawnTinyProgressParticle() {
+  // Small progress particle effect - placeholder function
+  // Could add canvas-based particle effects here if desired
 }
 
 // ---------------------------
@@ -1184,14 +1345,14 @@ function getPreviousMilestone(score) {
 // - prevTotal: previous cumulativeScore before adding runScore
 // ---------------------------
 function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null, onComplete = null) {
-  if (!progressBar || !progressLabel) return;
-
   // If all skins are unlocked, show golden completed bar without animation
   if (allSkinsUnlockedShown) {
-    progressBar.style.width = "100%";
-    progressBar.style.background = "gold";
-    progressLabel.innerText = "COLLECTION COMPLETE!";
-    progressLabel.style.color = "gold"; // Make the text gold too
+    canvasProgressBar.progress = 100;
+    canvasProgressBar.message = "COLLECTION COMPLETE!";
+    if (!running) {
+      draw(); // Draw complete game state
+      drawCanvasUIWithCRT();
+    }
     if (onComplete) onComplete();
     return;
   }
@@ -1207,8 +1368,12 @@ function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null,
     const milestoneRange = nextMilestone - prevMilestone;
     const percent = (progress / milestoneRange) * 100;
     
-    progressBar.style.width = percent + "%";
-    progressLabel.innerText = `${progress} / ${milestoneRange}`;
+    canvasProgressBar.progress = percent;
+    canvasProgressBar.message = `${progress} / ${milestoneRange}`;
+    if (!running) {
+      draw(); // Draw complete game state  
+      drawCanvasUIWithCRT();
+    }
     if (onComplete) onComplete(); // <-- call immediately if not animated
     return;
   }
@@ -1284,24 +1449,37 @@ function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null,
       const milestoneRange = nextMilestone - prevMilestone;
       const percent = (progress / milestoneRange) * 100;
       
-      progressBar.style.width = percent + "%";
-      //progressLabel.innerText = `${Math.floor(progress)} / ${milestoneRange}`;
+      canvasProgressBar.progress = percent;
+      canvasProgressBar.message = `${Math.floor(progress)} / ${milestoneRange}`;
+      
+      // Refresh canvas display with full game state
+      if (!running) {
+        draw(); // Draw complete game state (bird, pipes, score, etc.)
+        drawCanvasUIWithCRT();
+      }
 
       if (Math.random() < 0.6) spawnTinyProgressParticle();
 
       if (nextCumulativeIndex < cumulativeMilestones.length &&
           currentTotal >= cumulativeMilestones[nextCumulativeIndex]) {
-        const milestoneValue = cumulativeMilestones[nextCumulativeIndex];
-        spawnProgressBurstAtBar();
-        stopSound('sparkle'); // Stop sparkle sound during loot box
-        triggerBarFlash(() => {
-          handleMilestoneMessage(`Reached ${milestoneValue} total points!`, () => {
-            nextCumulativeIndex++;
-            lastTime = performance.now();
-            loopSound('sparkle'); // Resume sparkle sound after loot box
-            requestAnimationFrame(frame);
+        try {
+          const milestoneValue = cumulativeMilestones[nextCumulativeIndex];
+          spawnProgressBurstAtBar();
+          stopSound('sparkle'); // Stop sparkle sound during loot box
+          triggerBarFlash(() => {
+            handleMilestoneMessage(`Reached ${milestoneValue} total points!`, () => {
+              nextCumulativeIndex++;
+              lastTime = performance.now();
+              loopSound('sparkle'); // Resume sparkle sound after loot box
+              requestAnimationFrame(frame);
+            });
           });
-        });
+        } catch (error) {
+          console.error('Milestone handling error:', error);
+          // Continue animation if there's an error
+          nextCumulativeIndex++;
+          requestAnimationFrame(frame);
+        }
         return; // pause until flash + loot box done
       }
 
@@ -1322,23 +1500,33 @@ function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null,
 
 
 function showProgressUI() {
-  const wrapper = document.getElementById('progress-wrapper');
-  if (wrapper) wrapper.style.display = 'flex';
+  canvasProgressBar.visible = true;
+  canvasProgressBar.progress = 0;
+  canvasProgressBar.message = 'Submitting score...';
+  
+  // Redraw canvas to show progress bar
+  if (!running) {
+    drawStaticBackground();
+    drawCanvasUIWithCRT();
+  }
 }
 
 function hideProgressUI() {
-  const wrapper = document.getElementById('progress-wrapper');
-  if (wrapper) wrapper.style.display = 'none';
+  canvasProgressBar.visible = false;
+  
+  // Redraw canvas to hide progress bar
+  if (!running) {
+    drawStaticBackground();
+    drawCanvasUIWithCRT();
+  }
 }
 
 function showLeaderboardButton() {
-  const leaderboardBtn = document.getElementById('leaderboard-btn');
-  if (leaderboardBtn) leaderboardBtn.style.display = 'block';
+  // Leaderboard button now drawn on canvas
 }
 
 function hideLeaderboardButton() {
-  const leaderboardBtn = document.getElementById('leaderboard-btn');
-  if (leaderboardBtn) leaderboardBtn.style.display = 'none';
+  // Leaderboard button now drawn on canvas
 }
 
 function showMuteButton() {
@@ -1381,144 +1569,29 @@ function updateSkinMenuArrows() {
 }
 
 function showLootBox(onComplete, message = '', secretSkinKey = null, secretSkinData = null) {
-  lootBoxActive = true;
-  const container = document.getElementById('game-container');
-  if (!container) return;
-
-  // Create loot box container
-  const boxWrapper = document.createElement('div');
-  boxWrapper.style.position = 'absolute';
-  boxWrapper.style.left = '50%';
-  boxWrapper.style.top = '50%';
-  boxWrapper.style.transform = 'translate(-50%, -50%)';
-  boxWrapper.style.display = 'flex';
-  boxWrapper.style.flexDirection = 'column';
-  boxWrapper.style.alignItems = 'center';
-  boxWrapper.style.gap = '10px';
-  boxWrapper.style.zIndex = 10000;
-
-  // Message above box
-  const msgDiv = document.createElement('div');
-  const isSecretSkin = secretSkinKey && secretSkinData;
-  msgDiv.style.color = isSecretSkin ? '#00aaff' : 'gold'; // blue for secret skins, gold for regular
-  msgDiv.style.fontSize = '14px';
-  msgDiv.style.fontWeight = 'bold';
-  msgDiv.style.textAlign = 'center';
-  msgDiv.style.textShadow = '0 2px 4px rgba(0, 0, 0, 0.7)';
-  msgDiv.style.padding = '8px 16px';
-  msgDiv.style.background = 'rgba(0, 0, 0, 0.3)';
-  msgDiv.style.borderRadius = '8px';
-  msgDiv.style.border = '1px solid rgba(255, 255, 255, 0.2)';
-  msgDiv.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.3)';
-  msgDiv.style.backdropFilter = 'blur(5px)';
-  msgDiv.style.webkitBackdropFilter = 'blur(5px)';
-  msgDiv.style.whiteSpace = 'nowrap'; // prevent text wrapping
-  msgDiv.innerText = message;
-
-  // Box itself (scaled to display size)
-  const box = document.createElement('div');
-  box.style.width = SKIN_PREVIEW_DISPLAY_SIZE + 'px';
-  box.style.height = SKIN_PREVIEW_DISPLAY_SIZE + 'px';
-  box.style.background = '#333';
-  box.style.border = isSecretSkin ? '3px solid #00aaff' : '3px solid gold'; // blue border for secret skins
-  box.style.borderRadius = '12px';
-  box.style.display = 'flex';
-  box.style.alignItems = 'center';
-  box.style.justifyContent = 'center';
-  box.style.cursor = 'pointer';
-  box.style.fontSize = Math.floor(SKIN_PREVIEW_DISPLAY_SIZE * 0.35) + 'px'; // scale emoji (increased from 0.22)
-  box.style.color = 'white';
-
-  // Fix the emoji assignment before appending
-  box.innerText = isSecretSkin ? '⭐' : '🎁'; // star for secret skins, gift for regular
-  
-  boxWrapper.appendChild(msgDiv);
-  boxWrapper.appendChild(box);
-  container.appendChild(boxWrapper);
-
-  let boxClicked = false; // prevent multiple clicks
-
-  box.addEventListener('click', () => {
-    if (boxClicked) return; // ignore if already clicked
-    boxClicked = true;
-    playSound('sparkle'); // Play sparkle sound when loot box is clicked
-
-    let newSkinKey, newSkin;
+  try {
+    lootBoxActive = true;
     
-    if (secretSkinKey && secretSkinData) {
-      // This is a secret skin unlock
-      newSkinKey = secretSkinKey;
-      newSkin = secretSkinData;
-      // Secret skin is already unlocked in unlockedSkins by checkSecretSkinUnlocks
-    } else {
-      // Regular loot box - get locked regular skins (not secret skins)
-      const lockedSkinKeys = Object.keys(ALL_SKINS).filter(key => !unlockedSkins.includes(key));
-      if (lockedSkinKeys.length > 0) {
-        newSkinKey = lockedSkinKeys[Math.floor(Math.random() * lockedSkinKeys.length)];
-        newSkin = ALL_SKINS[newSkinKey];
+    // Canvas-based loot box
+    canvasLootBox.visible = true;
+    canvasLootBox.message = message;
+    canvasLootBox.isSecret = secretSkinKey && secretSkinData;
+    canvasLootBox.onComplete = onComplete;
+    canvasLootBox.secretSkinKey = secretSkinKey;
+    canvasLootBox.secretSkinData = secretSkinData;
+    canvasLootBox.clicked = false;
 
-        // Unlock regular skin
-        unlockedSkins.push(newSkinKey);
-        localStorage.setItem('unlockedSkins', JSON.stringify(unlockedSkins));
-      }
+    // Refresh canvas display
+    if (!running) {
+      drawStaticBackground();
+      drawCanvasUIWithCRT();
     }
-    
-    if (newSkinKey && newSkin) {
-      updateSkinMenuArrows();
-
-      // Set current
-      currentSkin = newSkinKey;
-      currentSkinIndex = unlockedSkins.indexOf(currentSkin);
-      localStorage.setItem('currentSkin', currentSkin);
-      updateSkinDisplay();
-
-      msgDiv.innerText = `Unlocked: ${newSkin.name}`;
-
-      // Show full preview (body + wings) inside box
-      box.innerHTML = '';
-      const previewURL = createSkinPreview(newSkinKey);
-      const img = new Image();
-      img.src = previewURL;
-      img.style.width = SKIN_PREVIEW_DISPLAY_SIZE * 0.9 + 'px';
-      img.style.height = SKIN_PREVIEW_DISPLAY_SIZE * 0.9 + 'px';
-      img.style.imageRendering = 'auto'; // Enable smooth scaling
-      box.appendChild(img);
-      
-      // Check if this was the last regular skin to unlock (secret skins don't count)
-      const allRegularSkinKeys = Object.keys(ALL_SKINS);
-      const regularSkinsUnlocked = unlockedSkins.filter(skin => allRegularSkinKeys.includes(skin));
-      const justUnlockedAll = regularSkinsUnlocked.length === allRegularSkinKeys.length && !allSkinsUnlockedShown;
-      
-      // sparkles
-      for (let i = 0; i < 15; i++) spawnTinyProgressParticle();
-
-      setTimeout(() => {
-        boxWrapper.remove();
-        lootBoxActive = false; // set inactive after box disappears
-        
-        if (justUnlockedAll) {
-          // Show special completion message
-          showAllSkinsUnlockedMessage(onComplete);
-        } else {
-          if (onComplete) onComplete(); // call the callback after delay
-        }
-      }, 1500);
-    } else {
-      // No skin to unlock or all skins unlocked: show rat emoji
-      msgDiv.innerText = 'All skins unlocked!';
-      box.style.background = '#666';
-      box.innerText = '🐀';
-      
-      // sparkles
-      for (let i = 0; i < 15; i++) spawnTinyProgressParticle();
-
-      setTimeout(() => {
-        boxWrapper.remove();
-        lootBoxActive = false; // set inactive after box disappears
-        if (onComplete) onComplete(); // call the callback after delay
-      }, 1500);
-    }
-  });
+  } catch (error) {
+    console.error('Loot box display error:', error);
+    // Fallback: call completion callback to prevent game freeze
+    lootBoxActive = false;
+    if (onComplete) onComplete();
+  }
 }
 
 
@@ -1548,6 +1621,7 @@ function reset() {
   // No reset needed for Web Audio API sounds as they're one-shot
   
   running = true;
+  postGameSequenceActive = false; // Reset post-game sequence flag for new game
 
   hideProgressUI(); // <--- hide bar while running
   hideLeaderboardButton(); // hide leaderboard button while playing
@@ -1557,7 +1631,7 @@ function reset() {
   // start game loop
   lastTime = 0;
   requestAnimationFrame(loop)
-  document.getElementById('score').innerText = 'Score: 0';
+  // Score now drawn on canvas
 }
 
 
@@ -1568,14 +1642,14 @@ function reset() {
 // ---------------------------
 let milestoneProcessingActive = true; // Flag to control milestone processing
 
-handleMilestoneMessage = function(message, onDone) {
+function handleMilestoneMessage(message, onDone) {
   // Skip milestone messages if collection is complete
   if (!milestoneProcessingActive) {
     if (onDone) onDone();
     return;
   }
   showLootBox(onDone, message); // pass the message here
-};
+}
 
 
 function showMilestonePopup(messages) {
@@ -1876,7 +1950,7 @@ function update(dt) {
         }
         p.passed = true;
         pipesPassedCount++; // increment the pipes passed counter
-        document.getElementById('score').innerText = 'Score: ' + score;
+        // Score now drawn on canvas
       }
     }
   }
@@ -2149,7 +2223,390 @@ function draw() {
 
   // Decrease shock timer
   if (shockTimer > 0) shockTimer--;
+  
+  // Draw UI elements on canvas
+  drawCanvasUI();
 }
+
+// Canvas UI drawing function
+function drawCanvasUI() {
+  // Check what UI elements should be shown
+  const completionMsg = document.getElementById('completion-message');
+  const freezeFrameMsg = document.getElementById('freeze-frame-message');
+  const showCompletionMsg = completionMsg && completionMsg.style.display !== 'none';
+  const showFreezeFrame = freezeFrameMsg && document.body.contains(freezeFrameMsg);
+  
+  // Show canvas skin menu only when login complete, game not running, and no post-game sequence active
+  const showSkinMenu = isLoginComplete && !running && !postGameSequenceActive && !lootBoxActive && !showCompletionMsg && !showFreezeFrame;
+  
+  // Show score during game, completion message, or freeze frame
+  const showScore = running || showCompletionMsg || showFreezeFrame;
+  
+  // Show leaderboard button ONLY during skin menu (not during game)
+  const showLeaderboard = showSkinMenu;
+  
+  if (!showScore && !showLeaderboard) return;
+  
+  ctx.save();
+  
+  // Draw score (top left) if appropriate
+  if (showScore) {
+    ctx.fillStyle = '#fff';
+    ctx.font = `${BIRD_SIZE * 0.25}px Arial`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`Score: ${score}`, BIRD_SIZE * 0.15, BIRD_SIZE * 0.4);
+  }
+  
+  // Draw leaderboard button (top right) if appropriate
+  if (showLeaderboard) {
+    const buttonText = 'Leaderboard';
+    const buttonPadding = BIRD_SIZE * 0.15;
+    const buttonHeight = BIRD_SIZE * 0.4;
+    
+    // Measure text to size button
+    ctx.font = `${BIRD_SIZE * 0.2}px Arial`;
+    const textMetrics = ctx.measureText(buttonText);
+    const buttonWidth = textMetrics.width + buttonPadding * 2;
+    
+    // Button position (top right)
+    const buttonX = canvas.width - buttonWidth - BIRD_SIZE * 0.15;
+    const buttonY = BIRD_SIZE * 0.15;
+    
+    // Store button bounds for click detection
+    window.leaderboardButtonBounds = {
+      x: buttonX,
+      y: buttonY,
+      width: buttonWidth,
+      height: buttonHeight
+    };
+    
+    // Draw button background
+    ctx.fillStyle = '#fff8d6';
+    ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight);
+    
+    // Draw button text (perfectly centered)
+    ctx.fillStyle = '#111';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    const leaderboardMetrics = ctx.measureText(buttonText);
+    const leaderboardTextHeight = leaderboardMetrics.actualBoundingBoxAscent + leaderboardMetrics.actualBoundingBoxDescent;
+    ctx.fillText(buttonText, buttonX + buttonWidth/2, buttonY + buttonHeight/2 + leaderboardTextHeight/2);
+  } else {
+    // Clear button bounds when not visible
+    window.leaderboardButtonBounds = null;
+  }
+  
+  // Draw skin menu if visible
+  if (showSkinMenu) {
+    drawCanvasSkinMenu();
+  } else {
+    // Clear skin menu button bounds when not visible
+    window.skinLeftButtonBounds = null;
+    window.skinRightButtonBounds = null;
+    window.skinPlayButtonBounds = null;
+    window.crtToggleButtonBounds = null;
+    window.crtScanlineMinusButtonBounds = null;
+    window.crtScanlinePlusButtonBounds = null;
+  }
+  
+  // Draw canvas-based UI elements
+  drawCanvasProgressBar();
+  drawCanvasCelebrationMessage();
+  drawCanvasLootBox();
+  
+  ctx.restore();
+}
+
+// Canvas-based UI element drawing functions
+function drawCanvasProgressBar() {
+  if (!canvasProgressBar.visible) return;
+  
+  const centerX = canvas.width / 2;
+  const barWidth = BIRD_SIZE * 3;
+  const barHeight = BIRD_SIZE * 0.3;
+  const barX = centerX - barWidth / 2;
+  const barY = BIRD_SIZE * 1.5;
+  
+  // Progress bar background
+  ctx.fillStyle = '#333';
+  ctx.fillRect(barX, barY, barWidth, barHeight);
+  
+  // Progress bar fill
+  const fillWidth = (canvasProgressBar.progress / 100) * barWidth;
+  ctx.fillStyle = '#00aaff';
+  ctx.fillRect(barX, barY, fillWidth, barHeight);
+  
+  // Progress bar border
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(barX, barY, barWidth, barHeight);
+  
+  // Progress message
+  ctx.fillStyle = '#fff';
+  ctx.font = `${BIRD_SIZE * 0.2}px Arial`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText(canvasProgressBar.message, centerX, barY + barHeight + BIRD_SIZE * 0.1);
+}
+
+function drawCanvasCelebrationMessage() {
+  if (!canvasCelebrationMessage.visible) return;
+  
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height * 0.4;
+  
+  // Add pulsing effect
+  const elapsed = performance.now() - canvasCelebrationMessage.startTime;
+  const pulseScale = 1 + 0.1 * Math.sin(elapsed * 0.01);
+  
+  ctx.save();
+  ctx.translate(centerX, centerY);
+  ctx.scale(pulseScale, pulseScale);
+  
+  // Message text
+  ctx.fillStyle = canvasCelebrationMessage.color;
+  ctx.font = `bold ${BIRD_SIZE * 0.5}px Arial`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 3;
+  ctx.strokeText(canvasCelebrationMessage.text, 0, 0);
+  ctx.fillText(canvasCelebrationMessage.text, 0, 0);
+  
+  ctx.restore();
+}
+
+function drawCanvasLootBox() {
+  if (!canvasLootBox.visible) return;
+  
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+  const boxSize = BIRD_SIZE * 1.5;
+  
+  // Loot box background
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  
+  // Loot box container
+  const boxX = centerX - boxSize / 2;
+  const boxY = centerY - boxSize / 2;
+  
+  // Box background
+  ctx.fillStyle = canvasLootBox.isSecret ? '#1a237e' : '#bf6900';
+  ctx.fillRect(boxX, boxY, boxSize, boxSize);
+  
+  // Box border
+  ctx.strokeStyle = canvasLootBox.isSecret ? '#3f51b5' : '#ff9800';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(boxX, boxY, boxSize, boxSize);
+  
+  // Box shine effect
+  const gradient = ctx.createLinearGradient(boxX, boxY, boxX + boxSize, boxY + boxSize);
+  gradient.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
+  gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(boxX, boxY, boxSize, boxSize);
+  
+  // Message above box
+  if (canvasLootBox.message) {
+    ctx.fillStyle = canvasLootBox.isSecret ? '#00aaff' : '#ffd700';
+    ctx.font = `${BIRD_SIZE * 0.25}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 2;
+    ctx.strokeText(canvasLootBox.message, centerX, boxY - BIRD_SIZE * 0.2);
+    ctx.fillText(canvasLootBox.message, centerX, boxY - BIRD_SIZE * 0.2);
+  }
+  
+  // Click to open text
+  ctx.fillStyle = '#fff';
+  ctx.font = `${BIRD_SIZE * 0.2}px Arial`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 2;
+  ctx.strokeText('Click to open!', centerX, boxY + boxSize + BIRD_SIZE * 0.2);
+  ctx.fillText('Click to open!', centerX, boxY + boxSize + BIRD_SIZE * 0.2);
+  
+  // Store click bounds for loot box
+  window.lootBoxBounds = {
+    x: boxX,
+    y: boxY,
+    width: boxSize,
+    height: boxSize
+  };
+}
+
+// Canvas-based skin menu drawing
+function drawCanvasSkinMenu() {
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+  
+  // No background overlay - keep the game background visible
+  
+  // Check if arrows should be shown (only if more than 1 skin unlocked)
+  const showArrows = unlockedSkins.length > 1;
+  
+  if (showArrows) {
+    // Arrow button size
+    const arrowSize = BIRD_SIZE * 0.8;
+    const arrowSpacing = BIRD_SIZE * 2; // Reduced from 3 to 2
+    
+    // Left arrow button
+    const leftArrowX = centerX - arrowSpacing;
+    const leftArrowY = centerY - arrowSize/2;
+    
+    // Store button bounds for click detection
+    window.skinLeftButtonBounds = {
+      x: leftArrowX,
+      y: leftArrowY,
+      width: arrowSize,
+      height: arrowSize
+    };
+    
+    // Draw left arrow background
+    ctx.fillStyle = '#444';
+    ctx.fillRect(leftArrowX, leftArrowY, arrowSize, arrowSize);
+    
+    // Draw left arrow text (perfectly centered)
+    ctx.fillStyle = '#fff';
+    ctx.font = `${BIRD_SIZE * 0.4}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    // Get text metrics for perfect centering
+    const metrics = ctx.measureText('◀');
+    const textHeight = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
+    ctx.fillText('◀', leftArrowX + arrowSize/2, leftArrowY + arrowSize/2 + textHeight/2);
+    
+    // Right arrow button
+    const rightArrowX = centerX + arrowSpacing - arrowSize;
+    const rightArrowY = centerY - arrowSize/2;
+    
+    window.skinRightButtonBounds = {
+      x: rightArrowX,
+      y: rightArrowY,
+      width: arrowSize,
+      height: arrowSize
+    };
+    
+    // Draw right arrow background
+    ctx.fillStyle = '#444';
+    ctx.fillRect(rightArrowX, rightArrowY, arrowSize, arrowSize);
+    
+    // Draw right arrow text (perfectly centered)
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('▶', rightArrowX + arrowSize/2, rightArrowY + arrowSize/2 + textHeight/2);
+  } else {
+    // Clear button bounds when arrows are not shown
+    window.skinLeftButtonBounds = null;
+    window.skinRightButtonBounds = null;
+  }
+  
+  // Current skin display (center circle) - made larger
+  const skinDisplaySize = BIRD_SIZE * 1.8; // Increased from 1.2 to 1.8
+  const animationOffset = getSkinPreviewAnimationOffset();
+  const animatedCenterY = centerY + animationOffset;
+  const skinDisplayX = centerX - skinDisplaySize/2;
+  const skinDisplayY = animatedCenterY - skinDisplaySize/2;
+  
+  // Draw skin display background (circle) with animation
+  ctx.fillStyle = '#333';
+  ctx.beginPath();
+  ctx.arc(centerX, animatedCenterY, skinDisplaySize/2, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Draw current skin preview (using actual skin images) with animation
+  if (currentSkin && getAllSkinsData()[currentSkin] && typeof createSkinPreview === 'function') {
+    // Store the preview image if not already stored
+    if (!window.cachedSkinPreview || window.cachedSkinPreview.skinKey !== currentSkin) {
+      const previewURL = createSkinPreview(currentSkin);
+      const img = new Image();
+      img.onload = () => {
+        window.cachedSkinPreview = { skinKey: currentSkin, image: img };
+        // Redraw to show the loaded image
+        drawStaticBackground();
+        drawCanvasUI();
+      };
+      img.src = previewURL;
+    }
+    
+    // Draw the cached preview image if available (with animation offset)
+    if (window.cachedSkinPreview && window.cachedSkinPreview.skinKey === currentSkin && window.cachedSkinPreview.image) {
+      const img = window.cachedSkinPreview.image;
+      const imgSize = skinDisplaySize * 0.8; // Make it slightly smaller than the circle
+      ctx.drawImage(img, centerX - imgSize/2, animatedCenterY - imgSize/2, imgSize, imgSize);
+    }
+  }
+  
+  // Skin name below the preview (also animated)
+  ctx.fillStyle = '#fff';
+  ctx.font = `${BIRD_SIZE * 0.3}px Arial`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top'; // Reset to top for skin name
+  if (currentSkin && getAllSkinsData()[currentSkin]) {
+    ctx.fillText(getAllSkinsData()[currentSkin].name, centerX, animatedCenterY + skinDisplaySize/2 + BIRD_SIZE * 0.6);
+  }
+  
+  // Play button
+  const playButtonWidth = BIRD_SIZE * 2.5;
+  const playButtonHeight = BIRD_SIZE * 0.8;
+  const playButtonX = centerX - playButtonWidth/2;
+  const playButtonY = centerY + skinDisplaySize/2 + BIRD_SIZE * 1.2;
+  
+  window.skinPlayButtonBounds = {
+    x: playButtonX,
+    y: playButtonY,
+    width: playButtonWidth,
+    height: playButtonHeight
+  };
+  
+  // Draw play button background
+  ctx.fillStyle = '#4CAF50';
+  ctx.fillRect(playButtonX, playButtonY, playButtonWidth, playButtonHeight);
+  
+  // Draw play button text (perfectly centered)
+  ctx.fillStyle = '#fff';
+  ctx.font = `${BIRD_SIZE * 0.35}px Arial`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  const playMetrics = ctx.measureText('PLAY');
+  const playTextHeight = playMetrics.actualBoundingBoxAscent + playMetrics.actualBoundingBoxDescent;
+  ctx.fillText('PLAY', centerX, playButtonY + playButtonHeight/2 + playTextHeight/2);
+  
+  // CRT Filter Controls
+  const crtButtonWidth = BIRD_SIZE * 2;
+  const crtButtonHeight = BIRD_SIZE * 0.6;
+  const crtButtonY = playButtonY + playButtonHeight + BIRD_SIZE * 0.5;
+  
+  // CRT Toggle Button
+  const crtToggleX = centerX - crtButtonWidth/2;
+  
+  window.crtToggleButtonBounds = {
+    x: crtToggleX,
+    y: crtButtonY,
+    width: crtButtonWidth,
+    height: crtButtonHeight
+  };
+  
+  // Draw CRT toggle button
+  ctx.fillStyle = crtEnabled ? '#2196F3' : '#666';
+  ctx.fillRect(crtToggleX, crtButtonY, crtButtonWidth, crtButtonHeight);
+  
+  // Draw CRT toggle text
+  ctx.fillStyle = '#fff';
+  ctx.font = `${BIRD_SIZE * 0.25}px Arial`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  const crtMetrics = ctx.measureText('CRT FILTER');
+  const crtTextHeight = crtMetrics.actualBoundingBoxAscent + crtMetrics.actualBoundingBoxDescent;
+  ctx.fillText('CRT FILTER', centerX, crtButtonY + crtButtonHeight/2 + crtTextHeight/2);
+}
+
+
 
 function loop(timestamp) {
   if (!lastTime) lastTime = timestamp;
@@ -2158,6 +2615,11 @@ function loop(timestamp) {
   
   update(dt);
   draw();
+  
+  // Apply CRT filter if enabled
+  if (crtEnabled) {
+    drawCRTWebGL(timestamp);
+  }
   
   if (running) {
     requestAnimationFrame(loop);
@@ -2172,6 +2634,7 @@ function flap() {
 
 function endGame() {
   running = false;
+  postGameSequenceActive = true; // Prevent skin menu during post-game sequence
   playSound('death'); // Play death sound effect
   const prevTotal = cumulativeScore;
   cumulativeScore += score;
@@ -2255,6 +2718,11 @@ function showFreezeFrame(onContinue) {
   document.head.appendChild(style);
   
   document.body.appendChild(message);
+  
+  // Redraw canvas to show score during freeze frame
+  setTimeout(() => {
+    drawCanvasUI();
+  }, 0);
   
   // Declare event handler functions at top level for proper cleanup
   function handleScreenInteraction(e) {
@@ -2385,33 +2853,26 @@ function endCelebration() {
 }
 
 function showCelebrationMessage(text, color) {
-  // Create or update celebration message
-  let celebMsg = document.getElementById('celebration-message');
-  if (!celebMsg) {
-    celebMsg = document.createElement('div');
-    celebMsg.id = 'celebration-message';
-    celebMsg.style.position = 'absolute';
-    celebMsg.style.top = '40%';
-    celebMsg.style.left = '50%';
-    celebMsg.style.transform = 'translate(-50%, -50%)';
-    celebMsg.style.fontSize = '32px';
-    celebMsg.style.fontWeight = 'bold';
-    celebMsg.style.textAlign = 'center';
-    celebMsg.style.textShadow = '2px 2px 4px rgba(0,0,0,0.8)';
-    celebMsg.style.zIndex = '1000';
-    celebMsg.style.pointerEvents = 'none';
-    document.body.appendChild(celebMsg);
-  }
+  // Canvas-based celebration message
+  canvasCelebrationMessage.visible = true;
+  canvasCelebrationMessage.text = text;
+  canvasCelebrationMessage.color = color;
+  canvasCelebrationMessage.startTime = performance.now();
   
-  celebMsg.textContent = text;
-  celebMsg.style.color = color;
-  celebMsg.style.display = 'block';
+  // Redraw canvas to show message
+  if (!running) {
+    drawStaticBackground();
+    drawCanvasUIWithCRT();
+  }
 }
 
 function hideCelebrationMessage() {
-  const celebMsg = document.getElementById('celebration-message');
-  if (celebMsg) {
-    celebMsg.style.display = 'none';
+  canvasCelebrationMessage.visible = false;
+  
+  // Redraw canvas to hide message
+  if (!running) {
+    drawStaticBackground();
+    drawCanvasUIWithCRT();
   }
 }
 
@@ -2430,34 +2891,19 @@ function showAllSkinsUnlockedMessage(onComplete) {
   stopSound('sparkle');
   
   // Immediately update progress bar to completed state
-  if (progressBar && progressLabel) {
-    progressBar.style.width = "100%";
-    progressBar.style.background = "gold";
-    progressLabel.innerText = "COLLECTION COMPLETE!";
-    progressLabel.style.color = "gold";
-  }
+  canvasProgressBar.progress = 100;
+  canvasProgressBar.message = "COLLECTION COMPLETE!";
   
-  // Create completion message
-  let completionMsg = document.getElementById('completion-message');
-  if (!completionMsg) {
-    completionMsg = document.createElement('div');
-    completionMsg.id = 'completion-message';
-    completionMsg.style.position = 'absolute';
-    completionMsg.style.top = '40%';
-    completionMsg.style.left = '50%';
-    completionMsg.style.transform = 'translate(-50%, -50%)';
-    completionMsg.style.fontSize = '30px';
-    completionMsg.style.fontWeight = 'bold';
-    completionMsg.style.textAlign = 'center';
-    completionMsg.style.textShadow = '2px 2px 4px rgba(0,0,0,0.8)';
-    completionMsg.style.zIndex = '1001';
-    completionMsg.style.pointerEvents = 'none';
-    document.body.appendChild(completionMsg);
-  }
+  // Show canvas-based completion message
+  canvasCelebrationMessage.visible = true;
+  canvasCelebrationMessage.text = "ALL SKINS UNLOCKED!";
+  canvasCelebrationMessage.color = "#FFD700";
   
-  completionMsg.textContent = "ALL SKINS UNLOCKED!";
-  completionMsg.style.color = "#FFD700"; // gold color like #1 message
-  completionMsg.style.display = 'block';
+  // Refresh canvas display
+  if (!running) {
+    drawStaticBackground();
+    drawCanvasUIWithCRT();
+  }
   
   // Play victory sound for collection completion
   playSound('leaderboard');
@@ -2469,7 +2915,7 @@ function showAllSkinsUnlockedMessage(onComplete) {
   setTimeout(() => {
     minTimeElapsed = true;
     if (messageShown) {
-      hideCompletionMessage();
+      hideCanvasCompletionMessage();
       if (onComplete) onComplete();
     }
   }, 1000);
@@ -2478,7 +2924,7 @@ function showAllSkinsUnlockedMessage(onComplete) {
   function handleClick() {
     if (minTimeElapsed) {
       document.removeEventListener('click', handleClick);
-      hideCompletionMessage();
+      hideCanvasCompletionMessage();
       if (onComplete) onComplete();
     } else {
       messageShown = true;
@@ -2488,10 +2934,13 @@ function showAllSkinsUnlockedMessage(onComplete) {
   document.addEventListener('click', handleClick);
 }
 
-function hideCompletionMessage() {
-  const completionMsg = document.getElementById('completion-message');
-  if (completionMsg) {
-    completionMsg.style.display = 'none';
+function hideCanvasCompletionMessage() {
+  canvasCelebrationMessage.visible = false;
+  
+  // Refresh canvas display
+  if (!running) {
+    drawStaticBackground();
+    drawCanvasUIWithCRT();
   }
 }
 
@@ -2504,7 +2953,201 @@ document.querySelector('#skin-menu #start').addEventListener('click', () => {
 
 // Enhanced input handling for mobile optimization
 function handleFlap(e) {
-  if (e) e.preventDefault();
+  if (e) {
+    e.preventDefault();
+    
+    // Check loot box click first
+    if (canvasLootBox.visible && window.lootBoxBounds && !canvasLootBox.clicked) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
+      
+      const bounds = window.lootBoxBounds;
+      
+      if (x >= bounds.x && x <= bounds.x + bounds.width &&
+          y >= bounds.y && y <= bounds.y + bounds.height) {
+        // Handle loot box click
+        canvasLootBox.clicked = true;
+        playSound('sparkle');
+        
+        let newSkinKey, newSkin;
+        
+        if (canvasLootBox.secretSkinKey && canvasLootBox.secretSkinData) {
+          // This is a secret skin unlock
+          newSkinKey = canvasLootBox.secretSkinKey;
+          newSkin = canvasLootBox.secretSkinData;
+        } else {
+          // Regular loot box - get locked regular skins
+          const lockedSkinKeys = Object.keys(ALL_SKINS).filter(key => !unlockedSkins.includes(key));
+          if (lockedSkinKeys.length > 0) {
+            newSkinKey = lockedSkinKeys[Math.floor(Math.random() * lockedSkinKeys.length)];
+            newSkin = ALL_SKINS[newSkinKey];
+
+            // Unlock regular skin
+            unlockedSkins.push(newSkinKey);
+            localStorage.setItem('unlockedSkins', JSON.stringify(unlockedSkins));
+          }
+        }
+        
+        if (newSkinKey && newSkin) {
+          updateSkinMenuArrows();
+
+          // Set current
+          currentSkin = newSkinKey;
+          currentSkinIndex = unlockedSkins.indexOf(currentSkin);
+          localStorage.setItem('currentSkin', currentSkin);
+          updateSkinDisplay();
+
+          canvasLootBox.message = `Unlocked: ${newSkin.name}`;
+          
+          // Check if this was the last regular skin to unlock
+          const allRegularSkinKeys = Object.keys(ALL_SKINS);
+          const regularSkinsUnlocked = unlockedSkins.filter(skin => allRegularSkinKeys.includes(skin));
+          const justUnlockedAll = regularSkinsUnlocked.length === allRegularSkinKeys.length && !allSkinsUnlockedShown;
+          
+          // Sparkles
+          for (let i = 0; i < 15; i++) spawnTinyProgressParticle();
+
+          // Update canvas display with new message
+          drawStaticBackground();
+          drawCanvasUIWithCRT();
+
+          setTimeout(() => {
+            canvasLootBox.visible = false;
+            lootBoxActive = false;
+            window.lootBoxBounds = null;
+            
+            // Redraw without loot box
+            drawStaticBackground();
+            drawCanvasUIWithCRT();
+            
+            if (justUnlockedAll) {
+              showAllSkinsUnlockedMessage(canvasLootBox.onComplete);
+            } else if (canvasLootBox.onComplete) {
+              canvasLootBox.onComplete();
+            }
+          }, 1500);
+        } else {
+          // No skin to unlock
+          canvasLootBox.message = 'All skins unlocked!';
+          
+          // Sparkles
+          for (let i = 0; i < 15; i++) spawnTinyProgressParticle();
+
+          // Update canvas display with new message
+          drawStaticBackground();
+          drawCanvasUIWithCRT();
+
+          setTimeout(() => {
+            canvasLootBox.visible = false;
+            lootBoxActive = false;
+            window.lootBoxBounds = null;
+            
+            // Redraw without loot box
+            drawStaticBackground();
+            drawCanvasUIWithCRT();
+            
+            if (canvasLootBox.onComplete) {
+              canvasLootBox.onComplete();
+            }
+          }, 1500);
+        }
+        return;
+      }
+    }
+    
+    // Check if click is on leaderboard button (only available during skin menu)
+    if (window.leaderboardButtonBounds && !running) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
+      
+      const bounds = window.leaderboardButtonBounds;
+      
+      if (x >= bounds.x && x <= bounds.x + bounds.width &&
+          y >= bounds.y && y <= bounds.y + bounds.height) {
+        // Open leaderboard in new tab
+        window.open('leaderboard', '_blank', 'noopener');
+        return;
+      }
+    }
+    
+    // Check canvas skin menu clicks (only when skin menu is visible and game not running)
+    if (!running) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
+      
+      // Left arrow click (only if arrows are visible)
+      if (window.skinLeftButtonBounds && unlockedSkins.length > 1) {
+        const bounds = window.skinLeftButtonBounds;
+        if (x >= bounds.x && x <= bounds.x + bounds.width &&
+            y >= bounds.y && y <= bounds.y + bounds.height) {
+          currentSkinIndex--;
+          updateSkinDisplay();
+          animateSkinPreview(); // Trigger jump animation
+          // Redraw with CRT filter
+          drawStaticBackground();
+          drawCanvasUIWithCRT();
+          playSound('flap');
+          return;
+        }
+      }
+      
+      // Right arrow click (only if arrows are visible)
+      if (window.skinRightButtonBounds && unlockedSkins.length > 1) {
+        const bounds = window.skinRightButtonBounds;
+        if (x >= bounds.x && x <= bounds.x + bounds.width &&
+            y >= bounds.y && y <= bounds.y + bounds.height) {
+          currentSkinIndex++;
+          updateSkinDisplay();
+          animateSkinPreview(); // Trigger jump animation
+          // Redraw with CRT filter
+          drawStaticBackground();
+          drawCanvasUIWithCRT();
+          playSound('flap');
+          return;
+        }
+      }
+      
+      // Play button click
+      if (window.skinPlayButtonBounds) {
+        const bounds = window.skinPlayButtonBounds;
+        if (x >= bounds.x && x <= bounds.x + bounds.width &&
+            y >= bounds.y && y <= bounds.y + bounds.height) {
+          if (lootBoxActive) return; // ignore clicks while loot box is open
+          playSound('flap'); // Play flap sound when starting the game
+          hideMenu();  // hide the menu
+          reset();     // start the game
+          return;
+        }
+      }
+      
+      // CRT toggle button click
+      if (window.crtToggleButtonBounds) {
+        const bounds = window.crtToggleButtonBounds;
+        if (x >= bounds.x && x <= bounds.x + bounds.width &&
+            y >= bounds.y && y <= bounds.y + bounds.height) {
+          if (lootBoxActive) return; // ignore clicks while loot box is open
+          playSound('flap');
+          toggleCRTFilter();
+          // Redraw the menu with updated CRT state
+          drawStaticBackground();
+          drawCanvasUIWithCRT();
+          return;
+        }
+      }
+      
+
+    }
+  }
+  
   if (running) flap();
 }
 
