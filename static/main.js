@@ -2,6 +2,174 @@
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
+// ==== WebGL CRT overlay (toggleable) ====
+let crtEnabled = (localStorage.getItem('crtEnabled') === 'true') || false;
+let crtCanvas = null;
+let gl = null;
+let crtProgram = null;
+let crtTexture = null;
+let positionBuffer = null;
+
+const CRT_VERTEX = `
+attribute vec2 a_position;
+varying vec2 v_uv;
+void main(){
+  v_uv = a_position * 0.5 + 0.5;
+  gl_Position = vec4(a_position, 0.0, 1.0);
+}`;
+
+const CRT_FRAGMENT = `
+precision mediump float;
+uniform sampler2D u_texture;
+uniform vec2 u_resolution;
+uniform float u_time;
+varying vec2 v_uv;
+void main(){
+  vec2 uv = v_uv;
+  vec2 c = uv - 0.5;
+  float r2 = dot(c,c);
+  c *= 1.0 + 0.11 * r2; // modest barrel distortion (slightly stronger)
+  uv = c + 0.5;
+  float chroma = 0.0045; // modest chromatic aberration (slightly stronger)
+  vec3 col;
+  col.r = texture2D(u_texture, uv + vec2(chroma,0.0)).r;
+  col.g = texture2D(u_texture, uv).g;
+  col.b = texture2D(u_texture, uv - vec2(chroma,0.0)).b;
+  float scan = sin(uv.y * u_resolution.y * 1.2) * 0.02; // softer scanlines
+  col -= scan;
+  float d = distance(uv, vec2(0.5));
+  col *= smoothstep(1.05, 0.65, d); // lighter vignette
+  float noise = (fract(sin(dot(uv * u_resolution.xy, vec2(12.9898,78.233))) * 43758.5453) - 0.5) * 0.01; // less noise
+  float flicker = 0.01 * sin(u_time * 20.0); // less flicker
+  col += noise + flicker;
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+function createShader(gl, type, source){
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, source);
+  gl.compileShader(sh);
+  if(!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
+    console.error('CRT shader compile error:', gl.getShaderInfoLog(sh));
+  }
+  return sh;
+}
+
+function createProgram(gl, vs, fs){
+  const prog = gl.createProgram();
+  gl.attachShader(prog, createShader(gl, gl.VERTEX_SHADER, vs));
+  gl.attachShader(prog, createShader(gl, gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(prog);
+  if(!gl.getProgramParameter(prog, gl.LINK_STATUS)){
+    console.error('CRT program link error:', gl.getProgramInfoLog(prog));
+  }
+  return prog;
+}
+
+function ensureCRTCanvas(){
+  if (crtCanvas) return crtCanvas;
+  crtCanvas = document.createElement('canvas');
+  crtCanvas.id = 'crt-webgl';
+  crtCanvas.style.position = 'absolute';
+  crtCanvas.style.left = '0';
+  crtCanvas.style.top = '0';
+  crtCanvas.style.pointerEvents = 'none';
+  crtCanvas.style.zIndex = '1000'; // below UI overlays/buttons
+  canvas.parentNode.appendChild(crtCanvas);
+  gl = crtCanvas.getContext('webgl');
+  if(!gl){ console.warn('WebGL not supported, CRT disabled'); return null; }
+
+  crtProgram = createProgram(gl, CRT_VERTEX, CRT_FRAGMENT);
+  positionBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -1,-1, 1,-1, -1,1,
+    -1,1, 1,-1, 1,1
+  ]), gl.STATIC_DRAW);
+
+  crtTexture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, crtTexture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  resizeCRT();
+  return crtCanvas;
+}
+
+function resizeCRT(){
+  if(!crtCanvas || !gl) return;
+  const rect = canvas.getBoundingClientRect();
+  // match CSS size for overlay
+  crtCanvas.style.width = rect.width + 'px';
+  crtCanvas.style.height = rect.height + 'px';
+  // match device resolution backing store
+  const dpr = window.devicePixelRatio || 1;
+  crtCanvas.width = Math.floor(rect.width * dpr);
+  crtCanvas.height = Math.floor(rect.height * dpr);
+  gl.viewport(0, 0, crtCanvas.width, crtCanvas.height);
+}
+
+window.addEventListener('resize', resizeCRT);
+
+function drawCRTWebGL(time){
+  if(!crtEnabled || !gl) return;
+  gl.bindTexture(gl.TEXTURE_2D, crtTexture);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+
+  gl.useProgram(crtProgram);
+  const posLoc = gl.getAttribLocation(crtProgram, 'a_position');
+  gl.enableVertexAttribArray(posLoc);
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+  gl.uniform1f(gl.getUniformLocation(crtProgram, 'u_time'), (time||performance.now()) * 0.001);
+  gl.uniform2f(gl.getUniformLocation(crtProgram, 'u_resolution'), crtCanvas.width, crtCanvas.height);
+  gl.uniform1i(gl.getUniformLocation(crtProgram, 'u_texture'), 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+}
+
+function toggleCRT(){
+  crtEnabled = !crtEnabled;
+  const btn = document.getElementById('crt-btn');
+  if(crtEnabled){
+    if(!ensureCRTCanvas()) { crtEnabled = false; return; }
+    resizeCRT();
+    // Make sure there's something to show under CRT in menu state
+    if (!running && typeof drawStaticBackground === 'function') {
+      drawStaticBackground();
+    }
+    crtCanvas.style.display = 'block';
+    // Draw once immediately so it shows without waiting for the game loop
+    drawCRTWebGL(performance.now());
+    btn && (btn.textContent = '📺'); // Active icon
+  } else {
+    if(crtCanvas) crtCanvas.style.display = 'none';
+    btn && (btn.textContent = '🖥️'); // Inactive icon
+  }
+  try { localStorage.setItem('crtEnabled', String(crtEnabled)); } catch(e) {}
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const crtBtn = document.getElementById('crt-btn');
+  if (crtBtn) {
+    crtBtn.addEventListener('click', toggleCRT);
+    // initialize visible state
+    crtBtn.textContent = crtEnabled ? '📺' : '🖥️';
+    if (crtEnabled) {
+      ensureCRTCanvas();
+      resizeCRT();
+      crtCanvas.style.display = 'block';
+      // Ensure a draw so the filter appears in menu without waiting for loop
+      if (!running && typeof drawStaticBackground === 'function') {
+        drawStaticBackground();
+      }
+      drawCRTWebGL(performance.now());
+    }
+  }
+});
+
 // === FIXED HIGH-RESOLUTION RENDERING SYSTEM ===
 // Game renders at fixed high resolution, CSS handles scaling to display size
 const GAME_WIDTH = 1200;  // Fixed high-resolution width
@@ -980,9 +1148,17 @@ function showMenu() {
   
   // Show leaderboard button now that player can interact
   showLeaderboardButton();
+  showCRTButton();
   
   // Draw background
   drawStaticBackground();
+  // If CRT is enabled, ensure overlay is visible and drawn immediately
+  if (crtEnabled) {
+    ensureCRTCanvas();
+    resizeCRT();
+    crtCanvas.style.display = 'block';
+    drawCRTWebGL(performance.now());
+  }
 }
 
 function hideMenu() {
@@ -1005,7 +1181,7 @@ function createProgressUI() {
   wrapper.style.alignItems = 'center';
   wrapper.style.gap = '6px';
   wrapper.style.fontFamily = 'sans-serif';
-  wrapper.style.zIndex = '999';
+  wrapper.style.zIndex = '10002'; // Above CRT overlay and game UI elements
   wrapper.style.position = 'absolute';
   wrapper.style.marginTop = '80px'; 
 
@@ -1371,6 +1547,22 @@ function hideMuteButton() {
   }
 }
 
+function showCRTButton() {
+  const crtBtn = document.getElementById('crt-btn');
+  if (crtBtn) {
+    crtBtn.style.setProperty('display', 'flex', 'important');
+    crtBtn.style.visibility = 'visible';
+  }
+}
+
+function hideCRTButton() {
+  const crtBtn = document.getElementById('crt-btn');
+  if (crtBtn) {
+    crtBtn.style.setProperty('display', 'none', 'important');
+    crtBtn.style.visibility = 'hidden';
+  }
+}
+
 
 function updateSkinMenuArrows() {
   const leftArrow = document.getElementById('skin-left');
@@ -1566,6 +1758,7 @@ function reset() {
   hideProgressUI(); // <--- hide bar while running
   hideLeaderboardButton(); // hide leaderboard button while playing
   hideMuteButton(); // hide mute button during gameplay
+  hideCRTButton(); // hide CRT button during gameplay
   hideMenu(); // hide skin selection menu when starting game
 
   // start game loop
@@ -1949,8 +2142,9 @@ function drawStaticBackground() {
   ctx.strokeStyle = '#444';
   ctx.lineWidth = BG_LINE_WIDTH;
 
-  // Draw regular vertical lines (no movement offset)
-  for (let i = 0; i < canvas.width; i += BG_PATTERN_SIZE) {
+  // Draw regular vertical lines with a slight left offset to avoid edge distortion
+  const STATIC_LEFT_OFFSET = Math.round(BG_PATTERN_SIZE * 0.08); // ~8% of spacing
+  for (let i = -STATIC_LEFT_OFFSET; i < canvas.width + BG_PATTERN_SIZE; i += BG_PATTERN_SIZE) {
     ctx.beginPath();
     ctx.moveTo(i, 0);
     ctx.lineTo(i, canvas.height);
@@ -2172,6 +2366,8 @@ function loop(timestamp) {
   
   update(dt);
   draw();
+  // draw CRT on top if enabled
+  if (crtEnabled) drawCRTWebGL(timestamp);
   
   if (running) {
     requestAnimationFrame(loop);
@@ -2229,6 +2425,7 @@ function endGame() {
 function continueEndGame(prevTotal) {
   showProgressUI();
   showMuteButton(); // show mute button when game ends
+  showCRTButton(); // show CRT button when game ends
   updateProgressDisplay(true, score, prevTotal, () => {
     showFreezeFrame(() => {
       showMenu();
