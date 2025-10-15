@@ -28,19 +28,19 @@ void main(){
   vec2 uv = v_uv;
   vec2 c = uv - 0.5;
   float r2 = dot(c,c);
-  c *= 1.0 + 0.11 * r2; // modest barrel distortion (slightly stronger)
+  c *= 1.0 + 0.13 * r2; // modest barrel distortion (slightly stronger)
   uv = c + 0.5;
-  float chroma = 0.0045; // modest chromatic aberration (slightly stronger)
+  float chroma = 0.005; // modest chromatic aberration (slightly stronger)
   vec3 col;
   col.r = texture2D(u_texture, uv + vec2(chroma,0.0)).r;
   col.g = texture2D(u_texture, uv).g;
   col.b = texture2D(u_texture, uv - vec2(chroma,0.0)).b;
-  float scan = sin(uv.y * u_resolution.y * 1.2) * 0.02; // softer scanlines
+  float scan = sin(uv.y * u_resolution.y * 1.2) * 0.03; // softer scanlines
   col -= scan;
   float d = distance(uv, vec2(0.5));
-  col *= smoothstep(1.05, 0.65, d); // lighter vignette
-  float noise = (fract(sin(dot(uv * u_resolution.xy, vec2(12.9898,78.233))) * 43758.5453) - 0.5) * 0.01; // less noise
-  float flicker = 0.01 * sin(u_time * 20.0); // less flicker
+  col *= smoothstep(1.05, 0.5, d); // lighter vignette
+  float noise = (fract(sin(dot(uv * u_resolution.xy, vec2(12.9898,78.233))) * 43758.5453) - 0.5) * 0.015; // less noise
+  float flicker = 0.015 * sin(u_time * 15.0); // less flicker
   col += noise + flicker;
   gl_FragColor = vec4(col, 1.0);
 }`;
@@ -536,19 +536,19 @@ function showLoginForm() {
   overlay.innerHTML = `
     <video 
       src="static/assets/sniffy.webm" 
-      style="width:400px; height:400px; object-fit:cover; margin-bottom:16px; display:block; margin-left:auto; margin-right:auto; border-radius:8px;"
+      style="width:150px; height:150px; object-fit:cover; margin-bottom:16px; display:block; margin-left:auto; margin-right:auto; border-radius:8px;"
       autoplay 
       muted 
       loop 
       playsinline
     ></video>
-    <h2 style="margin:0 0 6px 0;">Welcome to Flappy Sniffy!</h2>
-    <input id="player-name" placeholder="Your name" type="text" autocomplete="name" />
-    <input id="player-section" placeholder="Your section number" type="text" autocomplete="off" />
+    <h2 style="margin:0 0 6px 0; font-size:20px;">Welcome to Flappy Sniffy!</h2>
+    <input id="player-name" placeholder="Your name" type="text" autocomplete="name" style="font-size:14px;" />
+    <input id="player-section" placeholder="Your section number" type="text" autocomplete="off" style="font-size:14px;" />
     <div style="display:flex; gap:12px; align-items:center; justify-content:center;">
-      <button id="login-btn" type="button">Start</button>
+      <button id="login-btn" type="button" style="font-size:15px;">Start</button>
     </div>
-    <small style="opacity:0.85;">Your name & section will be used for leaderboard submissions.</small>
+    <small style="opacity:0.85; font-size:10px;">Your name & section is used for leaderboards, and will not affect your grades in any way.</small>
   `;
   
   document.getElementById("login-btn").addEventListener("click", handleLogin);
@@ -560,7 +560,7 @@ function showWelcomeScreen() {
   overlay.innerHTML = `
     <video 
       src="static/assets/sniffy.webm" 
-      style="width:400px; height:400px; object-fit:cover; margin-bottom:16px; display:block; margin-left:auto; margin-right:auto; border-radius:8px;"
+      style="width:150px; height:150px; object-fit:cover; margin-bottom:16px; display:block; margin-left:auto; margin-right:auto; border-radius:8px;"
       autoplay 
       muted 
       loop 
