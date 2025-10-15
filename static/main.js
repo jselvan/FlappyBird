@@ -827,8 +827,8 @@ let currentDistribution = DISTRIBUTION_TYPES.UNIFORM; // track active distributi
 let pipesSpawnedCount = 0; // track how many pipes have been spawned
 
 // --- MILESTONES CONFIG ---
-const RUN_SCORE_MILESTONES = [100, 200, 400, 800, 900, 1000, 2000, 4000, 8000, 16000];   // first-time single-run milestones
-const CUMULATIVE_SCORE_STEP = 250;           // every 200 cumulative points
+const RUN_SCORE_MILESTONES = [100, 200, 400, 800, 1600, 3200, 6400, 12800, 25600];   // first-time single-run milestones
+const CUMULATIVE_SCORE_STEP = 300;           // every 250 cumulative points
 
 // --- SKIN SYSTEM ---
 // Define available skins (add more as needed)
