@@ -355,7 +355,14 @@ function resetPlayerData() {
 function showLoginForm() {
   const overlay = document.getElementById("login-overlay");
   overlay.innerHTML = `
-    <img src="static/assets/flappysniffy.png" alt="Flappy Sniffy" style="width:200px; margin-bottom:16px; display:block; margin-left:auto; margin-right:auto;" />
+    <video 
+      src="static/assets/sniffy.webm" 
+      style="width:400px; height:400px; object-fit:cover; margin-bottom:16px; display:block; margin-left:auto; margin-right:auto; border-radius:8px;"
+      autoplay 
+      muted 
+      loop 
+      playsinline
+    ></video>
     <h2 style="margin:0 0 6px 0;">Welcome to Flappy Sniffy!</h2>
     <input id="player-name" placeholder="Your name" type="text" autocomplete="name" />
     <input id="player-section" placeholder="Your section number" type="text" autocomplete="off" />
@@ -372,7 +379,14 @@ function showLoginForm() {
 function showWelcomeScreen() {
   const overlay = document.getElementById("login-overlay");
   overlay.innerHTML = `
-    <img src="static/assets/flappysniffy.png" alt="Flappy Sniffy" style="width:200px; margin-bottom:16px; display:block; margin-left:auto; margin-right:auto;" />
+    <video 
+      src="static/assets/sniffy.webm" 
+      style="width:400px; height:400px; object-fit:cover; margin-bottom:16px; display:block; margin-left:auto; margin-right:auto; border-radius:8px;"
+      autoplay 
+      muted 
+      loop 
+      playsinline
+    ></video>
     <h2 style="margin:0 0 6px 0;">Welcome, ${playerName}!</h2>
     <p style="margin:0 0 20px 0; opacity:0.9;">Section: ${playerSection}</p>
     <div style="display:flex; gap:12px; align-items:center; justify-content:center; flex-direction:column;">
