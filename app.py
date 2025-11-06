@@ -2,6 +2,17 @@ from flask import Flask, render_template, request, jsonify, url_for
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 import os
+import re
+import unicodedata
+import random
+
+# Load environment variables from a .env file (if present)
+try:
+    from dotenv import load_dotenv  # type: ignore
+    load_dotenv()
+except Exception:
+    # Silently continue if python-dotenv is not installed
+    pass
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 base_dir = os.path.abspath(os.path.dirname(__file__))
@@ -35,6 +46,54 @@ class Score(db.Model):
             'near_misses': self.near_misses,
             'created_at': self.created_at.isoformat()
         }
+
+
+# --- Minor profanity filter helpers ---
+# Note: keep this list small and school-safe; extend via environment if needed.
+BASIC_PROFANITY = set(
+    (os.environ.get("EXTRA_PROFANITY", "")
+        .lower()
+        .split(",") if os.environ.get("EXTRA_PROFANITY") else [])
+)
+
+# You can seed a minimal default list without explicit examples here if desired.
+# For demonstration, we keep it empty by default to avoid false positives.
+
+LEET_MAP = str.maketrans({
+    '0': 'o',
+    '1': 'i',  # could be 'l' as well; choose one to avoid over-flagging
+    '3': 'e',
+    '4': 'a',
+    '5': 's',
+    '7': 't',
+    '8': 'b',
+})
+
+def _normalize_for_match(s: str) -> str:
+    s = s.lower().translate(LEET_MAP)
+    s = unicodedata.normalize('NFKD', s)
+    s = ''.join(ch for ch in s if not unicodedata.combining(ch))
+    # keep letters only to catch spaced/punctuated variants
+    s = re.sub(r'[^a-z]', '', s)
+    # collapse repeats (e.g., cooool -> cool)
+    s = re.sub(r'(.)\1{2,}', r'\1\1', s)
+    return s
+
+def _fallback_player_name() -> str:
+    # Create a short random numeric suffix for uniqueness, e.g., Player-4821
+    return f"Player-{random.randint(1000, 9999)}"
+
+def sanitize_name(name: str) -> str:
+    try:
+        norm = _normalize_for_match(name)
+        if any(word and word in norm for word in BASIC_PROFANITY):
+            return _fallback_player_name()
+        # fallback names if empty or whitespace
+        if not name or not name.strip():
+            return _fallback_player_name()
+        return name
+    except Exception:
+        return _fallback_player_name()
 
 
 @app.before_request
@@ -110,7 +169,8 @@ def get_leaderboard():
 @app.route('/submit_score', methods=['POST'])
 def submit_score():
     data = request.get_json() or {}
-    name = data.get('name', 'Anon')[:64]
+    name_raw = data.get('name', 'Anon')[:64]
+    name = sanitize_name(name_raw)[:64]
     section = data.get('section', 'General')[:64]
     skin = data.get('skin', 'Classic')[:64]
     near_misses = data.get('nearMisses') or data.get('NearMisses') or 0
