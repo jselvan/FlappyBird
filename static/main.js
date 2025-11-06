@@ -294,6 +294,8 @@ let isLoginComplete = false; // Track if login/initialization is finished
 // --- TRACKERS ---
 let cumulativeScore = parseInt(localStorage.getItem('cumulativeScore') || '0');
 let reachedRunMilestones = JSON.parse(localStorage.getItem('reachedRunMilestones') || '[]');
+// Track near misses (sparkle triggers for close pipe passes) per run
+let nearMisses = 0;
 
 // unlocked skins saved in localStorage
 let unlockedSkins = JSON.parse(localStorage.getItem('unlockedSkins') || '["Classic"]'); // always have Classic
@@ -1455,7 +1457,10 @@ function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null,
 
   function startNumericAnimation() {
     const totalDelta = newTotal - prevTotal;
-    const msPerPoint = 6;
+    // Adaptive duration: larger deltas animate faster per point so total time stays reasonable
+    // Rough guide: small deltas ~0.8s, medium ~1.4s, very large capped ~2.8s (excluding milestone pauses)
+    const minMs = 800, maxMs = 2800;
+    const durationMs = Math.max(minMs, Math.min(maxMs, 600 + Math.sqrt(Math.max(0, totalDelta)) * 25));
     let animationStart = performance.now();
     let lastTime = animationStart;
     let currentTotal = prevTotal;
@@ -1472,11 +1477,12 @@ function updateProgressDisplay(animated = false, runScore = 0, prevTotal = null,
         return;
       }
       
-      const dt = now - lastTime;
+  const dt = now - lastTime;
       lastTime = now;
 
-      const increment = dt / msPerPoint;
-      currentTotal = Math.min(newTotal, currentTotal + increment);
+  // Move proportionally to totalDelta so we complete in ~durationMs (ignoring milestone pauses)
+  const increment = totalDelta * (dt / durationMs);
+  currentTotal = Math.min(newTotal, currentTotal + increment);
 
       // Calculate progress toward next milestone
       const nextMilestone = getNextMilestone(currentTotal);
@@ -1759,6 +1765,7 @@ function reset() {
   currentDistribution = DISTRIBUTION_TYPES.UNIFORM; // reset to uniform
   nextPipeDelay = BASE_DELAY;
   barsGlowing = false;
+  nearMisses = 0; // reset near miss counter
   
   // Reset audio states to prevent carryover issues from previous game
   // Web Audio API sounds auto-cleanup, just ensure music keeps playing
@@ -2083,6 +2090,7 @@ function update(dt) {
         // Sparkles based on raw distance, not final score
         if (rawDistanceMultiplier >= 5) {
           playSound('sparkle'); // Play sparkle sound for close passes
+          nearMisses++; // count near miss instance
           if (p.golden) {
             // More sparkles for golden pipes
             spawnSparkle(bird.x, bird.y);
@@ -2403,11 +2411,13 @@ function endGame() {
   const playerSection = localStorage.getItem('playerSection');
   let bestScore = parseInt(localStorage.getItem('bestScore') || "0", 10);
 
-  // If this run is a personal best, submit automatically
-  if (score > bestScore && playerName && playerSection) {
-    bestScore = score;
-    localStorage.setItem('bestScore', bestScore);
-
+  // Always submit the run if we have player info, but only celebrate on personal best
+  if (playerName && playerSection) {
+    const isPersonalBest = score > bestScore;
+    if (isPersonalBest) {
+      bestScore = score;
+      localStorage.setItem('bestScore', bestScore);
+    }
     fetch("submit_score", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2415,12 +2425,18 @@ function endGame() {
         name: playerName,
         section: playerSection,
         score: score,
-        skin: currentSkin
+        skin: currentSkin,
+        nearMisses: nearMisses
       })
     }).then(response => response.json())
       .then(data => {
-        // Start celebration system for personal best
-        startCelebration(data);
+        if (isPersonalBest) {
+          // Only trigger celebration flow on PB to keep visible behavior unchanged
+          startCelebration(data);
+        } else {
+          // Proceed with normal end flow without PB celebration
+          continueEndGame(prevTotal);
+        }
       })
       .catch(err => {
         console.error("Error submitting score:", err);
@@ -2428,7 +2444,7 @@ function endGame() {
         continueEndGame(prevTotal);
       });
   } else {
-    // No personal best, continue normally
+    // No player info, continue normally without submission
     continueEndGame(prevTotal);
   }
 }

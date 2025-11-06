@@ -17,6 +17,7 @@ class Score(db.Model):
     section = db.Column(db.String(64), nullable=True)
     score = db.Column(db.Integer, nullable=False)
     skin = db.Column(db.String(64), nullable=True, default='Classic')
+    near_misses = db.Column(db.Integer, nullable=False, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -31,6 +32,7 @@ class Score(db.Model):
             'score': self.score,
             'skin': self.skin,
             'skin_icon_url': icon_url,
+            'near_misses': self.near_misses,
             'created_at': self.created_at.isoformat()
         }
 
@@ -38,6 +40,16 @@ class Score(db.Model):
 @app.before_request
 def ensure_db():
     db.create_all()
+    # Minimal migration: add near_misses column if it doesn't exist
+    try:
+        insp = db.inspect(db.engine)
+        cols = [c['name'] for c in insp.get_columns('score')]
+        if 'near_misses' not in cols:
+            with db.engine.connect() as conn:
+                conn.execute(db.text('ALTER TABLE score ADD COLUMN near_misses INTEGER NOT NULL DEFAULT 0'))
+    except Exception:
+        # Best-effort; ignore if table doesn't exist yet or already updated
+        pass
 
 
 @app.route('/')
@@ -67,13 +79,29 @@ def get_leaderboard():
         max_scores = max_scores.filter(Score.section == section_filter)
     
     max_scores = max_scores.group_by(Score.name, Score.section).subquery()
-    
-    # Join back to get the full record with the highest score for each name/section
+    # For players who achieved their max score multiple times, select the most recent occurrence
+    best_rows = db.session.query(
+        Score.name.label('name'),
+        Score.section.label('section'),
+        func.max(Score.created_at).label('max_created_at')
+    ).join(
+        max_scores,
+        (Score.name == max_scores.c.name) &
+        (Score.section == max_scores.c.section) &
+        (Score.score == max_scores.c.max_score)
+    ).group_by(Score.name, Score.section).subquery()
+
+    # Join back to get exactly one row per player/section: their highest score and latest timestamp for that score
     scores = db.session.query(Score).join(
         max_scores,
-        (Score.name == max_scores.c.name) & 
-        (Score.section == max_scores.c.section) & 
+        (Score.name == max_scores.c.name) &
+        (Score.section == max_scores.c.section) &
         (Score.score == max_scores.c.max_score)
+    ).join(
+        best_rows,
+        (Score.name == best_rows.c.name) &
+        (Score.section == best_rows.c.section) &
+        (Score.created_at == best_rows.c.max_created_at)
     ).order_by(Score.score.desc(), Score.created_at).limit(limit).all()
     
     return jsonify([s.to_dict() for s in scores])
@@ -85,12 +113,17 @@ def submit_score():
     name = data.get('name', 'Anon')[:64]
     section = data.get('section', 'General')[:64]
     skin = data.get('skin', 'Classic')[:64]
+    near_misses = data.get('nearMisses') or data.get('NearMisses') or 0
     try:
         score_val = int(data.get('score', 0))
     except Exception:
         return jsonify({'error': 'invalid score'}), 400
+    try:
+        near_misses = int(near_misses)
+    except Exception:
+        near_misses = 0
 
-    s = Score(name=name, section=section, score=score_val, skin=skin)
+    s = Score(name=name, section=section, score=score_val, skin=skin, near_misses=near_misses)
     db.session.add(s)
     db.session.commit()
     
