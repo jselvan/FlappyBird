@@ -5,6 +5,7 @@ import os
 import re
 import unicodedata
 import random
+import uuid
 
 # Load environment variables from a .env file (if present)
 try:
@@ -30,6 +31,7 @@ class Score(db.Model):
     skin = db.Column(db.String(64), nullable=True, default='Classic')
     near_misses = db.Column(db.Integer, nullable=False, default=0)
     pipes_passed = db.Column(db.Integer, nullable=False, default=0)
+    run_id = db.Column(db.String(36), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -46,7 +48,28 @@ class Score(db.Model):
             'skin_icon_url': icon_url,
             'near_misses': self.near_misses,
             'pipes_passed': self.pipes_passed,
+            'run_id': self.run_id,
             'created_at': self.created_at.isoformat()
+        }
+
+
+class Run(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    run_id = db.Column(db.String(36), unique=True, nullable=False, index=True)
+    started_at = db.Column(db.DateTime, default=datetime.utcnow)
+    client_ip = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.String(256), nullable=True)
+    used = db.Column(db.Boolean, default=False)
+    meta = db.Column(db.String(256), nullable=True)
+
+    def to_dict(self):
+        return {
+            'run_id': self.run_id,
+            'started_at': self.started_at.isoformat(),
+            'client_ip': self.client_ip,
+            'user_agent': self.user_agent,
+            'used': self.used,
+            'metadata': self.meta,
         }
 
 
@@ -113,6 +136,10 @@ def ensure_db():
         if 'pipes_passed' not in cols:
             with db.engine.connect() as conn:
                 conn.execute(db.text('ALTER TABLE score ADD COLUMN pipes_passed INTEGER NOT NULL DEFAULT 0'))
+        # Add run_id if missing (nullable text to track server-issued run tokens)
+        if 'run_id' not in cols:
+            with db.engine.connect() as conn:
+                conn.execute(db.text("ALTER TABLE score ADD COLUMN run_id TEXT NULL"))
     except Exception:
         # Best-effort; ignore if table doesn't exist yet or already updated
         pass
@@ -173,6 +200,23 @@ def get_leaderboard():
     return jsonify([s.to_dict() for s in scores])
 
 
+@app.route('/start_run', methods=['POST'])
+def start_run():
+    """Issue a short-lived run token to be included with a subsequent score submission.
+    This helps the server bind a score submission to a previously-started game session.
+    """
+    data = request.get_json() or {}
+    meta = data.get('meta')
+    run_id = str(uuid.uuid4())
+    client_ip = request.remote_addr
+    user_agent = request.headers.get('User-Agent')
+
+    run = Run(run_id=run_id, client_ip=client_ip, user_agent=user_agent, meta=str(meta)[:256])
+    db.session.add(run)
+    db.session.commit()
+    return jsonify({'runId': run_id}), 201
+
+
 @app.route('/submit_score', methods=['POST'])
 def submit_score():
     data = request.get_json() or {}
@@ -196,7 +240,42 @@ def submit_score():
     except Exception:
         pipes_passed = 0
 
-    s = Score(name=name, section=section, score=score_val, skin=skin, near_misses=near_misses, pipes_passed=pipes_passed)
+    # Require server-issued run token to mitigate forged submissions
+    run_id = data.get('runId') or data.get('run_id')
+    if not run_id:
+        app.logger.warning('submit_score missing runId')
+        return jsonify({'error': 'missing runId', 'reason': 'runId required'}), 400
+    # At this point run_id must be present
+    run = Run.query.filter_by(run_id=run_id).first()
+    if not run:
+        app.logger.warning('submit_score invalid runId: %s', run_id)
+        return jsonify({'error': 'invalid runId', 'runId': run_id}), 400
+    if run.used:
+        app.logger.warning('submit_score run already used: %s', run_id)
+        return jsonify({'error': 'run already used', 'runId': run_id}), 400
+    # If client provided play duration, compare to elapsed server-side time
+    duration_ms = data.get('durationMs') or data.get('duration_ms')
+    try:
+        duration_ms = int(duration_ms) if duration_ms is not None else None
+    except Exception:
+        duration_ms = None
+    if duration_ms is not None:
+        actual_ms = (datetime.utcnow() - run.started_at).total_seconds() * 1000
+        diff = abs(actual_ms - duration_ms)
+        # Reject if timing mismatch is large (absolute >10s and relative >50%)
+        app.logger.info('run timing: run_id=%s actual_ms=%.0f duration_ms=%s diff=%.0f', run_id, actual_ms, duration_ms, diff)
+        if diff > 10000 and (duration_ms == 0 or diff / max(1, duration_ms) > 0.5):
+            app.logger.warning('submit_score timing mismatch for run %s: actual=%.0fms reported=%sms diff=%.0fms', run_id, actual_ms, duration_ms, diff)
+            return jsonify({'error': 'run validation failed', 'reason': 'timing_mismatch', 'diff_ms': diff}), 400
+
+    # mark run used and record basic metadata
+    run.used = True
+    run.meta = (run.meta or '')[:200] + f'|submitted_score:{score_val}'
+    db.session.add(run)
+    db.session.commit()
+    app.logger.info('submit_score accepted run %s and marked used', run_id)
+
+    s = Score(name=name, section=section, score=score_val, skin=skin, near_misses=near_misses, pipes_passed=pipes_passed, run_id=(run_id if run_id else None))
     db.session.add(s)
     db.session.commit()
     
