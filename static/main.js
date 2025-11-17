@@ -2426,7 +2426,8 @@ function endGame() {
         section: playerSection,
         score: score,
         skin: currentSkin,
-        nearMisses: nearMisses
+        nearMisses: nearMisses,
+        pipesPassed: pipesPassedCount
       })
     }).then(response => response.json())
       .then(data => {

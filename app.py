@@ -29,6 +29,7 @@ class Score(db.Model):
     score = db.Column(db.Integer, nullable=False)
     skin = db.Column(db.String(64), nullable=True, default='Classic')
     near_misses = db.Column(db.Integer, nullable=False, default=0)
+    pipes_passed = db.Column(db.Integer, nullable=False, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -44,6 +45,7 @@ class Score(db.Model):
             'skin': self.skin,
             'skin_icon_url': icon_url,
             'near_misses': self.near_misses,
+            'pipes_passed': self.pipes_passed,
             'created_at': self.created_at.isoformat()
         }
 
@@ -103,9 +105,14 @@ def ensure_db():
     try:
         insp = db.inspect(db.engine)
         cols = [c['name'] for c in insp.get_columns('score')]
+        # Add near_misses if missing
         if 'near_misses' not in cols:
             with db.engine.connect() as conn:
                 conn.execute(db.text('ALTER TABLE score ADD COLUMN near_misses INTEGER NOT NULL DEFAULT 0'))
+        # Add pipes_passed if missing
+        if 'pipes_passed' not in cols:
+            with db.engine.connect() as conn:
+                conn.execute(db.text('ALTER TABLE score ADD COLUMN pipes_passed INTEGER NOT NULL DEFAULT 0'))
     except Exception:
         # Best-effort; ignore if table doesn't exist yet or already updated
         pass
@@ -182,8 +189,14 @@ def submit_score():
         near_misses = int(near_misses)
     except Exception:
         near_misses = 0
+    # parse pipes_passed if provided
+    pipes_passed = data.get('pipesPassed') or data.get('pipes_passed') or 0
+    try:
+        pipes_passed = int(pipes_passed)
+    except Exception:
+        pipes_passed = 0
 
-    s = Score(name=name, section=section, score=score_val, skin=skin, near_misses=near_misses)
+    s = Score(name=name, section=section, score=score_val, skin=skin, near_misses=near_misses, pipes_passed=pipes_passed)
     db.session.add(s)
     db.session.commit()
     
