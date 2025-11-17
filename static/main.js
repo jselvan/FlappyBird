@@ -9,6 +9,9 @@ let gl = null;
 let crtProgram = null;
 let crtTexture = null;
 let positionBuffer = null;
+// Run token for anti-fraud (issued by server at run start)
+let currentRunId = null;
+let runStartTs = null;
 
 const CRT_VERTEX = `
 attribute vec2 a_position;
@@ -139,6 +142,46 @@ function drawCRTWebGL(time){
   gl.uniform2f(gl.getUniformLocation(crtProgram, 'u_resolution'), crtCanvas.width, crtCanvas.height);
   gl.uniform1i(gl.getUniformLocation(crtProgram, 'u_texture'), 0);
   gl.drawArrays(gl.TRIANGLES, 0, 6);
+}
+
+// Best-effort: request a server-issued run token at the start of a play session.
+function startRunOnServer(meta){
+  // Returns a Promise that resolves with the runId when successful
+  return new Promise((resolve, reject) => {
+    try{
+      fetch('/start_run', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ meta })
+      }).then(r => {
+        if(!r.ok) throw new Error('start_run failed');
+        return r.json();
+      }).then(d => {
+        if(d && d.runId) {
+          currentRunId = d.runId;
+          runStartTs = performance.now();
+          resolve(d.runId);
+        } else {
+          reject(new Error('no runId in response'));
+        }
+      }).catch(e => {
+        console.warn('start_run error', e);
+        reject(e);
+      });
+    }catch(e){ console.warn('start_run exception', e); reject(e); }
+  });
+}
+
+// Fetch a server-issued run token and then start the game (best-effort but required when enforced server-side)
+function beginRunAndReset(meta) {
+  // Show a small loading indicator if desired (could disable UI here)
+  return startRunOnServer(meta).then(() => {
+    // Once the server token is obtained, start the run normally
+    reset();
+  }).catch(err => {
+    console.error('Unable to obtain run token', err);
+    alert('Unable to start game: cannot obtain server run token. Try again.');
+  });
 }
 
 function toggleCRT(){
@@ -562,14 +605,14 @@ function showWelcomeScreen() {
   overlay.innerHTML = `
     <video 
       src="static/assets/sniffy.webm" 
-      style="width:150px; height:150px; object-fit:cover; margin-bottom:16px; display:block; margin-left:auto; margin-right:auto; border-radius:8px;"
+      style="width:150px; height:150px; object-fit:cover; margin-bottom:12px; display:block; margin-left:auto; margin-right:auto; border-radius:8px;"
       autoplay 
       muted 
       loop 
       playsinline
     ></video>
-    <h2 style="margin:0 0 6px 0;">Welcome, ${playerName}!</h2>
-    <p style="margin:0 0 20px 0; opacity:0.9;">Section: ${playerSection}</p>
+    <h2 style="margin:6px 0 8px 0; font-size:18px; text-align:center;">Welcome back, ${playerName}!</h2>
+    <p style="margin:0 0 16px 0; opacity:0.9; text-align:center;">Section: ${playerSection}</p>
     <div style="display:flex; gap:12px; align-items:center; justify-content:center; flex-direction:column;">
       <button id="start-game-btn" type="button" style="font-size:18px; padding:12px 24px;">Start Game</button>
       <button id="logout-btn" type="button" style="font-size:14px; padding:8px 16px; background:#ff6b6b; border:none; color:white; border-radius:6px; cursor:pointer;">Log Out</button>
@@ -579,30 +622,32 @@ function showWelcomeScreen() {
   
   document.getElementById("start-game-btn").addEventListener("click", () => {
     overlay.style.display = "none";
-    
+
     // Initialize canvas properly when starting game with stored credentials
-    // No keyboard delay needed here since no input fields were active
+    // Then obtain a server run token and start the game
     requestAnimationFrame(() => {
       // Force reflow to ensure overlay is completely removed
       overlay.offsetHeight;
-      
+
       // Now properly size the canvas for gameplay
       updateCanvasSize();
-      
+
       // Mark login as complete to enable resize handling
       isLoginComplete = true;
-      
+
       // Restore rendering settings after canvas is properly sized
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
       ctx.textBaseline = 'top';
       ctx.textAlign = 'left';
-      
+
       // Redraw background since updateCanvasSize() clears the canvas
       drawStaticBackground();
-      
       // Draw background now that canvas is properly configured
       drawStaticBackground();
+
+      // Open the skin selection menu; the menu's Play button will obtain a run token and start
+      showMenu();
     });
   });
   
@@ -1772,7 +1817,6 @@ function reset() {
   // No reset needed for Web Audio API sounds as they're one-shot
   
   running = true;
-
   hideProgressUI(); // <--- hide bar while running
   hideLeaderboardButton(); // hide leaderboard button while playing
   hideMuteButton(); // hide mute button during gameplay
@@ -2421,14 +2465,19 @@ function endGame() {
     fetch("submit_score", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: playerName,
-        section: playerSection,
-        score: score,
-        skin: currentSkin,
-        nearMisses: nearMisses,
-        pipesPassed: pipesPassedCount
-      })
+      body: JSON.stringify((() => {
+        const payload = {
+          name: playerName,
+          section: playerSection,
+          score: score,
+          skin: currentSkin,
+          nearMisses: nearMisses,
+          pipesPassed: pipesPassedCount
+        };
+        if (currentRunId) payload.runId = currentRunId;
+        if (runStartTs) payload.durationMs = Math.max(0, Math.round(performance.now() - runStartTs));
+        return payload;
+      })())
     }).then(response => response.json())
       .then(data => {
         if (isPersonalBest) {
@@ -2738,7 +2787,8 @@ document.querySelector('#skin-menu #start').addEventListener('click', () => {
   if (lootBoxActive) return; // ignore clicks while loot box is open
   playSound('flap'); // Play flap sound when starting the game
   hideMenu();  // hide the menu
-  reset();     // start the game
+  // Obtain server run token, then start the game
+  beginRunAndReset({ skin: currentSkin });
 });
 
 // Enhanced input handling for mobile optimization
@@ -2767,7 +2817,7 @@ document.addEventListener('keydown', (e) => {
       if (menu && menu.style.display !== 'none' && !lootBoxActive) {
         playSound('flap'); // Play flap sound when starting the game
         hideMenu();  // hide the menu
-        reset();     // start the game
+        beginRunAndReset({ skin: currentSkin });     // obtain run token then start
       }
     }
   } 
