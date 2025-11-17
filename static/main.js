@@ -149,7 +149,7 @@ function startRunOnServer(meta){
   // Returns a Promise that resolves with the runId when successful
   return new Promise((resolve, reject) => {
     try{
-      fetch('/start_run', {
+      fetch('start_run', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ meta })
