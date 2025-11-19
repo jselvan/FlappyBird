@@ -253,6 +253,9 @@ def submit_score():
     if run.used:
         app.logger.warning('submit_score run already used: %s', run_id)
         return jsonify({'error': 'run already used', 'runId': run_id}), 400
+    # Compute server-side elapsed time for this run (ms)
+    actual_ms = (datetime.utcnow() - run.started_at).total_seconds() * 1000
+
     # If client provided play duration, compare to elapsed server-side time
     duration_ms = data.get('durationMs') or data.get('duration_ms')
     try:
@@ -260,13 +263,23 @@ def submit_score():
     except Exception:
         duration_ms = None
     if duration_ms is not None:
-        actual_ms = (datetime.utcnow() - run.started_at).total_seconds() * 1000
         diff = abs(actual_ms - duration_ms)
         # Reject if timing mismatch is large (absolute >10s and relative >50%)
         app.logger.info('run timing: run_id=%s actual_ms=%.0f duration_ms=%s diff=%.0f', run_id, actual_ms, duration_ms, diff)
         if diff > 10000 and (duration_ms == 0 or diff / max(1, duration_ms) > 0.5):
             app.logger.warning('submit_score timing mismatch for run %s: actual=%.0fms reported=%sms diff=%.0fms', run_id, actual_ms, duration_ms, diff)
             return jsonify({'error': 'run validation failed', 'reason': 'timing_mismatch', 'diff_ms': diff}), 400
+
+    # Crude anti-cheat check: if reported score is very large but the run was very short, reject.
+    # This is intentionally simple: reject scores >1000 if effective duration <30s (30000 ms).
+    effective_ms = duration_ms if duration_ms is not None else actual_ms
+    try:
+        if score_val is not None and int(score_val) > 1000 and effective_ms < 30000:
+            app.logger.warning('submit_score rejected: high score %s with short duration %.0fms run=%s ip=%s', score_val, effective_ms, run_id, request.remote_addr)
+            return jsonify({'error': 'run rejected', 'reason': 'too_fast_high_score'}), 400
+    except Exception:
+        # If anything unexpected happens during this check, log and continue to normal processing
+        app.logger.exception('error during crude anti-cheat check for run %s', run_id)
 
     # mark run used and record basic metadata
     run.used = True
